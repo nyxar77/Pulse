@@ -2,11 +2,24 @@
 	import { browser } from '$app/environment';
 	import { exerciseLibrary, starterWorkout } from '$lib/data';
 	import type { Exercise, MuscleGroup, WorkoutExercise } from '$lib/types';
+	import {
+		Activity,
+		ArrowDown,
+		ArrowUp,
+		Check,
+		ChevronDown,
+		ExternalLink,
+		GripVertical,
+		LibraryBig,
+		Plus,
+		Search,
+		Trash2,
+		X
+	} from 'lucide-svelte';
 	import { onMount } from 'svelte';
 
 	const storageKey = 'pulse-push-strength-v1';
 	const muscleGroups: Array<MuscleGroup | 'All'> = ['All', 'Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core'];
-	const themes = ['mocha', 'macchiato', 'frappe', 'latte'] as const;
 
 	let dayExercises: WorkoutExercise[] = starterWorkout;
 	let activeDay = 'Push · Strength';
@@ -18,9 +31,9 @@
 	};
 	let search = '';
 	let selectedMuscle: MuscleGroup | 'All' = 'All';
-	let priorityMode = false;
+	let reorderMode = false;
+	let libraryOpen = false;
 	let expanded = new Set<string>();
-	let theme: (typeof themes)[number] = 'mocha';
 	let hydrated = false;
 	let draggedExerciseId: string | null = null;
 
@@ -34,7 +47,7 @@
 	$: completedCount = dayExercises.filter((exercise) => exercise.completed).length;
 	$: savedWorkouts = { ...workouts, [activeDay]: dayExercises };
 	$: if (browser && hydrated) {
-		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDay, theme }));
+		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDay }));
 	}
 
 	onMount(() => {
@@ -46,11 +59,9 @@
 					workouts: Record<string, WorkoutExercise[]>;
 					days: string[];
 					activeDay: string;
-					theme: (typeof themes)[number];
 				}>;
 				if (parsed.days?.length) days = parsed.days;
 				if (parsed.activeDay) activeDay = parsed.activeDay;
-				if (parsed.theme && themes.includes(parsed.theme)) theme = parsed.theme;
 				if (parsed.workouts) workouts = parsed.workouts;
 				else if (parsed.dayExercises?.length) workouts = { ...workouts, [activeDay]: parsed.dayExercises };
 				dayExercises = [...(workouts[activeDay] ?? [])];
@@ -129,163 +140,161 @@
 </script>
 
 <svelte:head>
-	<title>Pulse — Workout planner</title>
-	<meta
-		name="description"
-		content="Build focused training days and keep your exercise library close at hand."
-	/>
+	<title>Pulse — Training ledger</title>
+	<meta name="description" content="A training programme that follows your rules." />
 </svelte:head>
 
-<main data-theme={theme}>
-	<section class="app-shell" aria-label="Pulse workout planner">
-		<aside class="sidebar">
-			<a class="brand" href="/" aria-label="Pulse home">
-				<span class="brand-mark" aria-hidden="true">P</span>
-				<span>pulse</span>
-			</a>
+<div class="app" data-theme="mocha">
+	<header class="masthead">
+		<a class="wordmark" href="/" aria-label="Pulse home">
+			<span class="wordmark-icon"><Activity size={18} strokeWidth={2.4} /></span>
+			<strong>Pulse</strong>
+			<span class="wordmark-context">Training ledger</span>
+		</a>
 
-			<nav aria-label="Main navigation">
-				<a class="nav-link active" href="#today"><span aria-hidden="true">◈</span> Programme</a>
-				<a class="nav-link" href="#library"><span aria-hidden="true">⌕</span> Exercises</a>
-				<a class="nav-link" href="#progress"><span aria-hidden="true">↗</span> Progress</a>
+		<div class="masthead-actions">
+			<p class="save-state"><span></span> Local autosave</p>
+			<button class="vault-trigger" onclick={() => (libraryOpen = true)}>
+				<LibraryBig size={16} />
+				Exercise vault
+			</button>
+		</div>
+	</header>
+
+	<main class="ledger">
+		<aside class="programme-index" aria-label="Programme days">
+			<div class="index-heading">
+				<span>Programme</span>
+				<strong>01</strong>
+			</div>
+
+			<nav class="day-list">
+				{#each days as day, index}
+					<button class:active={day === activeDay} onclick={() => selectDay(day)}>
+						<span>{String(index + 1).padStart(2, '0')}</span>
+						<strong>{day}</strong>
+						<small>{workouts[day]?.length ?? 0} movements</small>
+					</button>
+				{/each}
 			</nav>
 
-			<div class="sidebar-bottom">
-				<div class="theme-picker">
-					<label for="theme">Flavour</label>
-					<select id="theme" bind:value={theme} aria-label="Catppuccin flavour">
-						{#each themes as flavour}
-							<option value={flavour}>{flavour}</option>
-						{/each}
-					</select>
-				</div>
-				<p class="small-muted">Your programme is saved on this device.</p>
-			</div>
+			<button class="new-day" onclick={createDay}><Plus size={15} /> New training day</button>
 		</aside>
 
-		<div class="content">
-			<header class="topbar">
+		<section class="session-page" aria-labelledby="session-title">
+			<header class="session-heading">
 				<div>
-					<p class="eyebrow">Monday · week 32</p>
-					<h1>Build with intent.</h1>
+					<p class="kicker">Sequence {String(days.indexOf(activeDay) + 1).padStart(2, '0')}</p>
+					<h1 id="session-title">{activeDay}</h1>
+					<p class="session-summary">
+						<span>{dayExercises.length} movements</span>
+						<span>{completedCount} complete</span>
+					</p>
 				</div>
-				<div class="topbar-actions">
-					<button class="icon-button" aria-label="Notifications">◌</button>
-					<button class="avatar" aria-label="Open profile">N</button>
-				</div>
+				<button class:active={reorderMode} class="reorder-toggle" onclick={() => (reorderMode = !reorderMode)} aria-pressed={reorderMode}>
+					<GripVertical size={16} />
+					{reorderMode ? 'Finish order' : 'Set order'}
+				</button>
 			</header>
 
-			<div class="page-grid">
-				<section class="workout-column" id="today" aria-labelledby="day-heading">
-					<div class="day-tabs" aria-label="Programme days">
-						{#each days as day}
-							<button class:current={activeDay === day} onclick={() => selectDay(day)}>{day}</button>
-						{/each}
-						<button class="add-day" onclick={createDay} aria-label="Create a training day">+</button>
-					</div>
-
-					<div class="workout-heading">
-						<div>
-							<p class="eyebrow">Current day</p>
-							<h2 id="day-heading">{activeDay}</h2>
-							<p class="subtle">{dayExercises.length} exercises · {completedCount}/{dayExercises.length} complete</p>
-						</div>
-						<button class:enabled={priorityMode} class="priority-toggle" onclick={() => (priorityMode = !priorityMode)} aria-pressed={priorityMode}>
-							<span aria-hidden="true">↕</span> {priorityMode ? 'Done ordering' : 'Set priority'}
-						</button>
-					</div>
-
-					<div class="exercise-list" aria-label="Exercises in this workout">
-						{#each dayExercises as exercise, index (exercise.id)}
-							<article
-								class:priority-mode={priorityMode}
-								class:complete={exercise.completed}
-								class="workout-card"
-								draggable={priorityMode}
-								ondragstart={(event) => handleDragStart(event, exercise.id)}
-								ondragover={(event) => priorityMode && event.preventDefault()}
-								ondrop={(event) => priorityMode && handleDrop(event, index)}
-							>
-								<div class="card-topline">
-									{#if priorityMode}
-										<span class="drag-handle" aria-label={`Priority ${index + 1}`} title="Drag to reorder">⠿</span>
-									{/if}
-									<label class="completion" title="Mark exercise complete">
-										<input type="checkbox" bind:checked={exercise.completed} oninput={touch} aria-label={`Mark ${exercise.name} complete`} />
-										<span aria-hidden="true">✓</span>
-									</label>
-									<div class="exercise-title">
-										<div class="title-line"><span class="priority-number">{index + 1}</span><h3>{exercise.name}</h3></div>
-										<p>{exercise.muscles.join(' · ')} <span>·</span> {exercise.equipment}</p>
-									</div>
-									<button class="expand-button" onclick={() => toggleExpanded(exercise.id)} aria-expanded={expanded.has(exercise.id)} aria-controls={`${exercise.id}-details`}>
-										<span class:rotated={expanded.has(exercise.id)} aria-hidden="true">⌄</span><span class="sr-only">Toggle details for {exercise.name}</span>
-									</button>
+			{#if dayExercises.length}
+				<div class="movement-list">
+					{#each dayExercises as exercise, index (exercise.id)}
+						<article
+							class:completed={exercise.completed}
+							class:reordering={reorderMode}
+							class="movement"
+							draggable={reorderMode}
+							ondragstart={(event) => handleDragStart(event, exercise.id)}
+							ondragover={(event) => reorderMode && event.preventDefault()}
+							ondrop={(event) => reorderMode && handleDrop(event, index)}
+						>
+							<div class="movement-main">
+								<div class="sequence-number">
+									{#if reorderMode}<GripVertical size={17} />{/if}
+									<span>{String(index + 1).padStart(2, '0')}</span>
 								</div>
 
-								<div class="training-fields">
-									<label><span>Sets</span><input type="number" min="1" max="20" bind:value={exercise.sets} oninput={touch} /></label>
-									<label><span>Reps</span><input bind:value={exercise.reps} oninput={touch} /></label>
-									<label><span>Load</span><input bind:value={exercise.load} oninput={touch} /></label>
-									<label><span>Rest</span><input bind:value={exercise.rest} oninput={touch} /></label>
+								<label class="completion-control">
+									<input type="checkbox" bind:checked={exercise.completed} oninput={touch} aria-label={`Mark ${exercise.name} complete`} />
+									<span><Check size={13} strokeWidth={3} /></span>
+								</label>
+
+								<div class="movement-name">
+									<h2>{exercise.name}</h2>
+									<p>{exercise.muscles.join(' / ')} <span>—</span> {exercise.equipment}</p>
 								</div>
 
-								{#if expanded.has(exercise.id)}
-									<div class="exercise-details" id={`${exercise.id}-details`}>
-										<p>{exercise.description}</p>
-										<div class="detail-actions">
-											<a href={exercise.guideUrl} target="_blank" rel="noreferrer">Watch form guide <span aria-hidden="true">↗</span></a>
-											<label class="note"><span>Note</span><input placeholder="Add a cue or target" bind:value={exercise.note} oninput={touch} /></label>
-											{#if priorityMode}
-												<div class="move-controls" aria-label={`Move ${exercise.name}`}>
-													<button onclick={() => moveExercise(index, -1)} disabled={index === 0}>↑</button>
-													<button onclick={() => moveExercise(index, 1)} disabled={index === dayExercises.length - 1}>↓</button>
-												</div>
-											{/if}
-											<button class="remove" onclick={() => removeExercise(exercise.id)}>Remove</button>
-										</div>
-									</div>
-								{/if}
-							</article>
-						{/each}
-					</div>
-				</section>
-
-				<aside class="library-panel" id="library" aria-labelledby="library-heading">
-					<div class="library-heading">
-						<div>
-							<p class="eyebrow">Your library</p>
-							<h2 id="library-heading">Add an exercise</h2>
-						</div>
-						<span class="library-count">{exerciseLibrary.length}</span>
-					</div>
-
-					<label class="search"><span aria-hidden="true">⌕</span><input placeholder="Search exercises" bind:value={search} /></label>
-					<div class="filters" aria-label="Filter by muscle group">
-						{#each muscleGroups as muscle}
-							<button class:chosen={selectedMuscle === muscle} onclick={() => (selectedMuscle = muscle)}>{muscle}</button>
-						{/each}
-					</div>
-
-					<div class="library-list">
-						{#each visibleExercises as exercise (exercise.id)}
-							<div class="library-item">
-								<div><h3>{exercise.name}</h3><p>{exercise.muscles.join(' · ')}</p></div>
-								<button class:added={dayExercises.some((item) => item.id === exercise.id)} onclick={() => addExercise(exercise)} disabled={dayExercises.some((item) => item.id === exercise.id)}>
-									{dayExercises.some((item) => item.id === exercise.id) ? 'Added' : 'Add'}
+								<button class="details-toggle" onclick={() => toggleExpanded(exercise.id)} aria-expanded={expanded.has(exercise.id)} aria-controls={`${exercise.id}-details`}>
+									<span>Details</span>
+									<ChevronDown class={expanded.has(exercise.id) ? 'turned' : ''} size={17} />
 								</button>
 							</div>
-						{:else}
-							<p class="empty">No exercises match that filter.</p>
-						{/each}
-					</div>
 
-					<div class="tip-card">
-						<span aria-hidden="true">✦</span>
-						<div><strong>Keep it intentional</strong><p>Set priority when exercise order matters. The first movement gets your freshest effort.</p></div>
-					</div>
-				</aside>
+							<div class="prescription">
+								<label><span>Sets</span><input type="number" min="1" max="20" bind:value={exercise.sets} oninput={touch} /></label>
+								<label><span>Rep range</span><input bind:value={exercise.reps} oninput={touch} /></label>
+								<label><span>Working load</span><input bind:value={exercise.load} oninput={touch} /></label>
+								<label><span>Rest</span><input bind:value={exercise.rest} oninput={touch} /></label>
+							</div>
+
+							{#if expanded.has(exercise.id)}
+								<div class="movement-details" id={`${exercise.id}-details`}>
+									<p>{exercise.description}</p>
+									<div class="details-toolbar">
+										<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open form reference</a>
+										<label class="movement-note"><span>Private cue</span><input placeholder="What should you remember?" bind:value={exercise.note} oninput={touch} /></label>
+										{#if reorderMode}
+											<div class="move-buttons">
+												<button onclick={() => moveExercise(index, -1)} disabled={index === 0} aria-label={`Move ${exercise.name} up`}><ArrowUp size={15} /></button>
+												<button onclick={() => moveExercise(index, 1)} disabled={index === dayExercises.length - 1} aria-label={`Move ${exercise.name} down`}><ArrowDown size={15} /></button>
+											</div>
+										{/if}
+										<button class="delete-movement" onclick={() => removeExercise(exercise.id)} aria-label={`Remove ${exercise.name}`}><Trash2 size={15} /></button>
+									</div>
+								</div>
+							{/if}
+						</article>
+					{/each}
+				</div>
+			{:else}
+				<div class="blank-session">
+					<p>Nothing prescribed.</p>
+					<span>This day is yours to define.</span>
+					<button onclick={() => (libraryOpen = true)}><Plus size={15} /> Add the first movement</button>
+				</div>
+			{/if}
+		</section>
+	</main>
+
+	{#if libraryOpen}
+		<button class="drawer-scrim" onclick={() => (libraryOpen = false)} aria-label="Close exercise vault"></button>
+		<aside class="exercise-vault" aria-labelledby="vault-title">
+			<header>
+				<div><p class="kicker">Movement archive</p><h2 id="vault-title">Exercise vault</h2></div>
+				<button class="icon-button" onclick={() => (libraryOpen = false)} aria-label="Close exercise vault"><X size={18} /></button>
+			</header>
+
+			<label class="vault-search"><Search size={16} /><input placeholder="Search your movements" bind:value={search} /></label>
+
+			<div class="muscle-filters" aria-label="Filter exercises by muscle group">
+				{#each muscleGroups as muscle}
+					<button class:active={selectedMuscle === muscle} onclick={() => (selectedMuscle = muscle)}>{muscle}</button>
+				{/each}
 			</div>
-		</div>
-	</section>
-</main>
+
+			<div class="vault-list">
+				{#each visibleExercises as exercise (exercise.id)}
+					<article>
+						<div><h3>{exercise.name}</h3><p>{exercise.muscles.join(' / ')} · {exercise.equipment}</p></div>
+						<button class:added={dayExercises.some((item) => item.id === exercise.id)} onclick={() => addExercise(exercise)} disabled={dayExercises.some((item) => item.id === exercise.id)}>
+							{#if dayExercises.some((item) => item.id === exercise.id)}<Check size={14} /> Added{:else}<Plus size={14} /> Add{/if}
+						</button>
+					</article>
+				{:else}
+					<p class="vault-empty">Nothing matches that search.</p>
+				{/each}
+			</div>
+		</aside>
+	{/if}
+</div>
