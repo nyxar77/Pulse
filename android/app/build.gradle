@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+def releaseVersionName = System.getenv('PULSE_VERSION_NAME') ?: '0.1.0'
+def releaseVersionCode = System.getenv('PULSE_VERSION_CODE') ?: '1'
+
 android {
     namespace = "io.github.nyxar77.pulse"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +10,8 @@ android {
         applicationId "io.github.nyxar77.pulse"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode releaseVersionCode.toInteger()
+        versionName releaseVersionName.replaceFirst('^v', '')
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
