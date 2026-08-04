@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { exerciseLibrary, starterWorkout } from '$lib/data';
-	import type { Exercise, MuscleGroup, TrainingDay, WorkoutExercise } from '$lib/types';
+	import type { Exercise, TrainingDay, WorkoutExercise } from '$lib/types';
 	import Activity from 'lucide-svelte/icons/activity';
+	import Archive from 'lucide-svelte/icons/archive';
+	import ArchiveRestore from 'lucide-svelte/icons/archive-restore';
 	import ArrowDown from 'lucide-svelte/icons/arrow-down';
 	import ArrowUp from 'lucide-svelte/icons/arrow-up';
 	import Check from 'lucide-svelte/icons/check';
 	import ChevronDown from 'lucide-svelte/icons/chevron-down';
+	import Copy from 'lucide-svelte/icons/copy';
 	import Download from 'lucide-svelte/icons/download';
 	import Ellipsis from 'lucide-svelte/icons/ellipsis';
 	import ExternalLink from 'lucide-svelte/icons/external-link';
@@ -25,25 +28,42 @@
 
 	const storageKey = 'pulse-ledger-v2';
 	const legacyStorageKey = 'pulse-push-strength-v1';
-	const muscleGroups: Array<MuscleGroup | 'All'> = ['All', 'Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core'];
+	const suggestedGroups = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core'];
 	const themes = ['latte', 'frappe', 'macchiato', 'mocha'] as const;
 	const accents = ['rosewater', 'flamingo', 'pink', 'mauve', 'red', 'maroon', 'peach', 'yellow', 'green', 'teal', 'sky', 'sapphire', 'blue', 'lavender'] as const;
 	type Theme = (typeof themes)[number];
 	type Accent = (typeof accents)[number];
 	type LedgerExport = {
 		app: 'pulse';
-		version: 1;
+		version: 1 | 2;
 		exportedAt: string;
 		settings: { theme: Theme; accent: Accent };
 		programme: { days: TrainingDay[]; workouts: Record<string, WorkoutExercise[]> };
+		library?: Exercise[];
+	};
+	type ExerciseDraft = {
+		name: string;
+		muscles: string;
+		tags: string;
+		equipment: string;
+		description: string;
+		guideUrl: string;
+		imageUrl: string;
 	};
 
 	let dayExercises: WorkoutExercise[] = starterWorkout;
 	let activeDayId = 'day-1';
 	let days: TrainingDay[] = [{ id: 'day-1', name: 'Day 01' }];
 	let workouts: Record<string, WorkoutExercise[]> = { 'day-1': starterWorkout };
+	let savedExercises: Exercise[] = exerciseLibrary.map((exercise) => ({ ...exercise }));
 	let search = '';
-	let selectedMuscle: MuscleGroup | 'All' = 'All';
+	let selectedMuscle = 'All';
+	let showArchived = false;
+	let exerciseEditorOpen = false;
+	let editingExerciseId: string | null = null;
+	let exerciseDraft: ExerciseDraft = blankExerciseDraft();
+	let exerciseFormError = '';
+	let deleteExerciseCandidateId: string | null = null;
 	let reorderMode = false;
 	let libraryOpen = false;
 	let appearanceOpen = false;
@@ -60,18 +80,21 @@
 	let pendingImport: LedgerExport | null = null;
 	let transferMessage = '';
 
-	$: visibleExercises = exerciseLibrary.filter((exercise) => {
+	$: availableGroups = ['All', ...new Set([...suggestedGroups, ...savedExercises.flatMap((exercise) => [...exercise.muscles, ...(exercise.tags ?? [])])])];
+	$: archivedCount = savedExercises.filter((exercise) => exercise.archived).length;
+	$: visibleExercises = savedExercises.filter((exercise) => {
 		const query = search.trim().toLowerCase();
-		const matchesSearch = !query || exercise.name.toLowerCase().includes(query);
-		const matchesMuscle = selectedMuscle === 'All' || exercise.muscles.includes(selectedMuscle);
-		return matchesSearch && matchesMuscle;
+		const searchable = [exercise.name, exercise.equipment, ...exercise.muscles, ...(exercise.tags ?? [])].join(' ').toLowerCase();
+		const matchesSearch = !query || searchable.includes(query);
+		const matchesMuscle = selectedMuscle === 'All' || exercise.muscles.includes(selectedMuscle) || exercise.tags?.includes(selectedMuscle);
+		return matchesSearch && matchesMuscle && Boolean(exercise.archived) === showArchived;
 	});
 
 	$: completedCount = dayExercises.filter((exercise) => exercise.completed).length;
 	$: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? 'Untitled day';
 	$: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
 	$: if (browser && hydrated) {
-		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDayId, theme, accent }));
+		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDayId, theme, accent, exercises: savedExercises }));
 	}
 
 	onMount(() => {
@@ -86,9 +109,11 @@
 					activeDay: string;
 					theme: Theme;
 					accent: Accent;
+					exercises: Exercise[];
 				}>;
 				if (parsed.theme && themes.includes(parsed.theme)) theme = parsed.theme;
 				if (parsed.accent && accents.includes(parsed.accent)) accent = parsed.accent;
+				if (parsed.exercises?.length) savedExercises = parsed.exercises.filter(isExercise);
 				if (parsed.days?.length && typeof parsed.days[0] === 'object') {
 					days = parsed.days as TrainingDay[];
 					activeDayId = parsed.activeDayId ?? days[0].id;
@@ -116,6 +141,118 @@
 		workouts = Object.fromEntries(days.map((day, index) => [day.id, legacyWorkouts[legacyDays[index]] ?? []]));
 		const activeIndex = Math.max(0, legacyDays.indexOf(legacyActive ?? ''));
 		activeDayId = days[activeIndex]?.id ?? days[0].id;
+	}
+
+	function blankExerciseDraft(): ExerciseDraft {
+		return { name: '', muscles: '', tags: '', equipment: '', description: '', guideUrl: '', imageUrl: '' };
+	}
+
+	function openExerciseCreator() {
+		editingExerciseId = null;
+		exerciseDraft = blankExerciseDraft();
+		exerciseFormError = '';
+		exerciseEditorOpen = true;
+		deleteExerciseCandidateId = null;
+	}
+
+	function openExerciseEditor(exercise: Exercise) {
+		editingExerciseId = exercise.id;
+		exerciseDraft = {
+			name: exercise.name,
+			muscles: exercise.muscles.join(', '),
+			tags: (exercise.tags ?? []).join(', '),
+			equipment: exercise.equipment,
+			description: exercise.description,
+			guideUrl: exercise.guideUrl,
+			imageUrl: exercise.imageUrl ?? ''
+		};
+		exerciseFormError = '';
+		exerciseEditorOpen = true;
+		deleteExerciseCandidateId = null;
+	}
+
+	function duplicateExercise(exercise: Exercise) {
+		openExerciseEditor(exercise);
+		editingExerciseId = null;
+		exerciseDraft = { ...exerciseDraft, name: `${exercise.name} variation` };
+	}
+
+	function saveExerciseDefinition() {
+		const name = exerciseDraft.name.trim();
+		const muscles = parseLabels(exerciseDraft.muscles);
+		const tags = parseLabels(exerciseDraft.tags);
+		const guideUrl = exerciseDraft.guideUrl.trim();
+		const imageUrl = exerciseDraft.imageUrl.trim();
+		if (!name) {
+			exerciseFormError = 'Give the exercise a name.';
+			return;
+		}
+		if (!muscles.length && !tags.length) {
+			exerciseFormError = 'Add at least one muscle or personal tag.';
+			return;
+		}
+		if (!isOptionalWebUrl(guideUrl) || !isOptionalWebUrl(imageUrl)) {
+			exerciseFormError = 'Media links must start with http:// or https://.';
+			return;
+		}
+
+		const existing = editingExerciseId ? savedExercises.find((exercise) => exercise.id === editingExerciseId) : undefined;
+		const updated: Exercise = {
+			id: existing?.id ?? `exercise-${Date.now()}`,
+			name,
+			muscles,
+			tags,
+			equipment: exerciseDraft.equipment.trim() || 'No equipment',
+			description: exerciseDraft.description.trim(),
+			guideUrl,
+			imageUrl: imageUrl || undefined,
+			custom: true,
+			archived: existing?.archived ?? false
+		};
+
+		if (existing) {
+			savedExercises = savedExercises.map((exercise) => (exercise.id === existing.id ? updated : exercise));
+			updateExerciseReferences(updated);
+		} else {
+			savedExercises = [...savedExercises, updated];
+		}
+		exerciseEditorOpen = false;
+		editingExerciseId = null;
+		exerciseFormError = '';
+		showArchived = false;
+	}
+
+	function updateExerciseReferences(updated: Exercise) {
+		const merge = (exercise: WorkoutExercise): WorkoutExercise =>
+			exercise.id === updated.id
+				? { ...exercise, name: updated.name, muscles: updated.muscles, tags: updated.tags, equipment: updated.equipment, description: updated.description, guideUrl: updated.guideUrl, imageUrl: updated.imageUrl }
+				: exercise;
+		dayExercises = dayExercises.map(merge);
+		workouts = Object.fromEntries(Object.entries(workouts).map(([id, exercises]) => [id, exercises.map(merge)]));
+	}
+
+	function toggleExerciseArchive(exercise: Exercise) {
+		savedExercises = savedExercises.map((item) => (item.id === exercise.id ? { ...item, archived: !item.archived } : item));
+		deleteExerciseCandidateId = null;
+	}
+
+	function deleteExerciseDefinition(id: string) {
+		savedExercises = savedExercises.filter((exercise) => exercise.id !== id);
+		deleteExerciseCandidateId = null;
+	}
+
+	function parseLabels(value: string): string[] {
+		return [...new Set(value.split(',').map((label) => label.trim()).filter(Boolean))];
+	}
+
+	function isOptionalWebUrl(value: string): boolean {
+		if (!value) return true;
+		try {
+			const url = new URL(value);
+			return url.protocol === 'https:' || url.protocol === 'http:';
+		} catch {
+			return false;
+		}
 	}
 
 	function touch() {
@@ -218,10 +355,11 @@
 	function exportLedger() {
 		const payload: LedgerExport = {
 			app: 'pulse',
-			version: 1,
+			version: 2,
 			exportedAt: new Date().toISOString(),
 			settings: { theme, accent },
-			programme: { days, workouts: savedWorkouts }
+			programme: { days, workouts: savedWorkouts },
+			library: savedExercises
 		};
 		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
@@ -259,12 +397,13 @@
 		dayExercises = [...workouts[activeDayId]];
 		theme = imported.settings.theme;
 		accent = imported.settings.accent;
+		if (imported.library) savedExercises = imported.library.map((exercise) => ({ ...exercise }));
 		pendingImport = null;
 		transferMessage = `Imported ${days.length} training ${days.length === 1 ? 'day' : 'days'}.`;
 	}
 
 	function isLedgerExport(value: unknown): value is LedgerExport {
-		if (!isRecord(value) || value.app !== 'pulse' || value.version !== 1 || !isRecord(value.settings) || !isRecord(value.programme)) return false;
+		if (!isRecord(value) || value.app !== 'pulse' || (value.version !== 1 && value.version !== 2) || !isRecord(value.settings) || !isRecord(value.programme)) return false;
 		if (typeof value.settings.theme !== 'string' || !themes.includes(value.settings.theme as Theme)) return false;
 		if (typeof value.settings.accent !== 'string' || !accents.includes(value.settings.accent as Accent)) return false;
 
@@ -274,21 +413,27 @@
 		if (!days.every((day) => isRecord(day) && typeof day.id === 'string' && day.id.length > 0 && typeof day.name === 'string' && day.name.trim().length > 0)) return false;
 		const ids = days.map((day) => (day as TrainingDay).id);
 		if (new Set(ids).size !== ids.length) return false;
-		return ids.every((id) => Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise));
+		if (!ids.every((id) => Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise))) return false;
+		return value.library === undefined || (Array.isArray(value.library) && value.library.every(isExercise));
 	}
 
 	function isWorkoutExercise(value: unknown): value is WorkoutExercise {
+		if (!isExercise(value)) return false;
+		const record = value as unknown as Record<string, unknown>;
+		const stringFields = ['reps', 'load', 'rest', 'note'];
+		if (!stringFields.every((field) => typeof record[field] === 'string')) return false;
+		if (typeof record.sets !== 'number' || !Number.isFinite(record.sets) || record.sets < 1 || typeof record.completed !== 'boolean') return false;
+		return true;
+	}
+
+	function isExercise(value: unknown): value is Exercise {
 		if (!isRecord(value)) return false;
-		const stringFields = ['id', 'name', 'equipment', 'guideUrl', 'description', 'reps', 'load', 'rest', 'note'];
+		const stringFields = ['id', 'name', 'equipment', 'guideUrl', 'description'];
 		if (!stringFields.every((field) => typeof value[field] === 'string')) return false;
-		if (typeof value.sets !== 'number' || !Number.isFinite(value.sets) || value.sets < 1 || typeof value.completed !== 'boolean') return false;
-		if (!Array.isArray(value.muscles) || !value.muscles.every((muscle) => muscleGroups.includes(muscle as MuscleGroup))) return false;
-		try {
-			const guide = new URL(value.guideUrl as string);
-			return guide.protocol === 'https:' || guide.protocol === 'http:';
-		} catch {
-			return false;
-		}
+		if (!Array.isArray(value.muscles) || !value.muscles.every((muscle) => typeof muscle === 'string')) return false;
+		if (value.tags !== undefined && (!Array.isArray(value.tags) || !value.tags.every((tag) => typeof tag === 'string'))) return false;
+		if (value.imageUrl !== undefined && typeof value.imageUrl !== 'string') return false;
+		return isOptionalWebUrl(value.guideUrl as string) && isOptionalWebUrl((value.imageUrl as string | undefined) ?? '');
 	}
 
 	function isRecord(value: unknown): value is Record<string, unknown> {
@@ -468,9 +613,12 @@
 
 							{#if expanded.has(exercise.id)}
 								<div class="movement-details" id={`${exercise.id}-details`}>
-									<p>{exercise.description}</p>
+									{#if exercise.imageUrl}
+										<figure class="movement-media"><img src={exercise.imageUrl} alt={`Reference for ${exercise.name}`} loading="lazy" /></figure>
+									{/if}
+									{#if exercise.description}<p>{exercise.description}</p>{/if}
 									<div class="details-toolbar">
-										<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open form reference</a>
+										{#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open form reference</a>{/if}
 										<label class="movement-note"><span>Private cue</span><input placeholder="What should you remember?" bind:value={exercise.note} oninput={touch} /></label>
 										{#if reorderMode}
 											<div class="move-buttons">
@@ -496,28 +644,63 @@
 	</main>
 
 	{#if libraryOpen}
-		<button class="drawer-scrim" onclick={() => (libraryOpen = false)} aria-label="Close exercise vault"></button>
+		<button class="drawer-scrim" onclick={() => { libraryOpen = false; exerciseEditorOpen = false; }} aria-label="Close exercise vault"></button>
 		<aside class="exercise-vault" aria-labelledby="vault-title">
-			<header>
+			<header class="vault-heading">
 				<div><p class="kicker">Movement archive</p><h2 id="vault-title">Exercise vault</h2></div>
-				<button class="icon-button" onclick={() => (libraryOpen = false)} aria-label="Close exercise vault"><X size={18} /></button>
+				<div class="vault-heading-actions">
+					<button class="create-exercise" onclick={openExerciseCreator}><Plus size={15} /> New exercise</button>
+					<button class="icon-button" onclick={() => { libraryOpen = false; exerciseEditorOpen = false; }} aria-label="Close exercise vault"><X size={18} /></button>
+				</div>
 			</header>
 
-			<label class="vault-search"><Search size={16} /><input placeholder="Search your movements" bind:value={search} /></label>
+			{#if exerciseEditorOpen}
+				<form class="exercise-editor" onsubmit={(event) => { event.preventDefault(); saveExerciseDefinition(); }}>
+					<header><div><p class="kicker">{editingExerciseId ? 'Edit definition' : 'New definition'}</p><h3>{editingExerciseId ? 'Refine exercise' : 'Save an exercise'}</h3></div><button type="button" class="icon-button" onclick={() => (exerciseEditorOpen = false)} aria-label="Close exercise editor"><X size={16} /></button></header>
+					<div class="exercise-form-grid">
+						<label class="wide"><span>Name</span><input bind:value={exerciseDraft.name} placeholder="e.g. Half-kneeling press" maxlength="80" /></label>
+						<label><span>Muscles</span><input bind:value={exerciseDraft.muscles} placeholder="Chest, triceps" /></label>
+						<label><span>Equipment</span><input bind:value={exerciseDraft.equipment} placeholder="Cable, rings, none…" /></label>
+						<label class="wide"><span>Personal tags</span><input bind:value={exerciseDraft.tags} placeholder="Lengthened, elbow-friendly, skill…" /></label>
+						<label class="wide"><span>Instructions or cues</span><textarea bind:value={exerciseDraft.description} placeholder="Only shown when the exercise is expanded"></textarea></label>
+						<label class="wide"><span>Reference link · optional</span><input type="url" bind:value={exerciseDraft.guideUrl} placeholder="https://…" /></label>
+						<label class="wide"><span>Image link · optional</span><input type="url" bind:value={exerciseDraft.imageUrl} placeholder="https://…" /></label>
+					</div>
+					{#if exerciseFormError}<p class="exercise-form-error">{exerciseFormError}</p>{/if}
+					<footer><button type="button" onclick={() => (exerciseEditorOpen = false)}>Cancel</button><button class="save-exercise" type="submit"><Save size={14} /> Save exercise</button></footer>
+				</form>
+			{/if}
 
-			<div class="muscle-filters" aria-label="Filter exercises by muscle group">
-				{#each muscleGroups as muscle}
+			<div class="vault-tools">
+				<label class="vault-search"><Search size={16} /><input placeholder="Search names, tags, equipment" bind:value={search} /></label>
+				{#if archivedCount}<button class:active={showArchived} class="archived-toggle" onclick={() => { showArchived = !showArchived; selectedMuscle = 'All'; }}>
+					{#if showArchived}<ArchiveRestore size={14} /> Active exercises{:else}<Archive size={14} /> Archived · {archivedCount}{/if}
+				</button>{/if}
+			</div>
+
+			<div class="muscle-filters" aria-label="Filter exercises by muscle or personal tag">
+				{#each availableGroups as muscle}
 					<button class:active={selectedMuscle === muscle} onclick={() => (selectedMuscle = muscle)}>{muscle}</button>
 				{/each}
 			</div>
 
 			<div class="vault-list">
 				{#each visibleExercises as exercise (exercise.id)}
-					<article>
-						<div><h3>{exercise.name}</h3><p>{exercise.muscles.join(' / ')} · {exercise.equipment}</p></div>
-						<button class:added={dayExercises.some((item) => item.id === exercise.id)} onclick={() => addExercise(exercise)} disabled={dayExercises.some((item) => item.id === exercise.id)}>
-							{#if dayExercises.some((item) => item.id === exercise.id)}<Check size={14} /> Added{:else}<Plus size={14} /> Add{/if}
-						</button>
+					<article class="vault-item">
+						<div class="vault-item-copy"><h3>{exercise.name}</h3><p>{exercise.muscles.join(' / ') || 'Personal'} · {exercise.equipment}</p>{#if exercise.tags?.length}<div class="exercise-tags">{#each exercise.tags as tag}<span>{tag}</span>{/each}</div>{/if}</div>
+						{#if deleteExerciseCandidateId === exercise.id}
+							<div class="delete-exercise-confirm"><span>Delete from the vault?</span><button onclick={() => (deleteExerciseCandidateId = null)}>Keep</button><button onclick={() => deleteExerciseDefinition(exercise.id)}>Delete</button></div>
+						{:else}
+							<div class="vault-item-actions">
+								<button onclick={() => duplicateExercise(exercise)} aria-label={`Duplicate ${exercise.name}`} title="Duplicate"><Copy size={14} /></button>
+								{#if exercise.custom}<button onclick={() => openExerciseEditor(exercise)} aria-label={`Edit ${exercise.name}`} title="Edit"><Pencil size={14} /></button>{/if}
+								<button onclick={() => toggleExerciseArchive(exercise)} aria-label={`${exercise.archived ? 'Restore' : 'Archive'} ${exercise.name}`} title={exercise.archived ? 'Restore' : 'Archive'}>{#if exercise.archived}<ArchiveRestore size={14} />{:else}<Archive size={14} />{/if}</button>
+								{#if exercise.custom}<button class="vault-delete" onclick={() => (deleteExerciseCandidateId = exercise.id)} aria-label={`Delete ${exercise.name}`} title="Delete"><Trash2 size={14} /></button>{/if}
+								{#if !exercise.archived}<button class:added={dayExercises.some((item) => item.id === exercise.id)} class="add-from-vault" onclick={() => addExercise(exercise)} disabled={dayExercises.some((item) => item.id === exercise.id)}>
+									{#if dayExercises.some((item) => item.id === exercise.id)}<Check size={14} /> Added{:else}<Plus size={14} /> Add{/if}
+								</button>{/if}
+							</div>
+						{/if}
 					</article>
 				{:else}
 					<p class="vault-empty">Nothing matches that search.</p>

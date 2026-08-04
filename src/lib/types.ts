@@ -1,13 +1,14 @@
-export type MuscleGroup =
-  "Chest" | "Back" | "Shoulders" | "Arms" | "Legs" | "Core";
-
 export type Exercise = {
   id: string;
   name: string;
-  muscles: MuscleGroup[];
+  muscles: string[];
+  tags?: string[];
   equipment: string;
   guideUrl: string;
+  imageUrl?: string;
   description: string;
+  custom?: boolean;
+  archived?: boolean;
 };
 
 export type WorkoutExercise = Exercise & {
