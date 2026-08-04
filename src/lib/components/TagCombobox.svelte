@@ -23,18 +23,27 @@
     const selected = new Set(values.map((value) => value.toLowerCase()));
     return options
       .filter((option) => !selected.has(option.toLowerCase()))
-      .filter((option) => !normalizedQuery || option.toLowerCase().includes(normalizedQuery))
+      .filter(
+        (option) =>
+          !normalizedQuery || option.toLowerCase().includes(normalizedQuery),
+      )
       .sort((left, right) => {
         const leftStarts = left.toLowerCase().startsWith(normalizedQuery);
         const rightStarts = right.toLowerCase().startsWith(normalizedQuery);
-        return Number(rightStarts) - Number(leftStarts) || left.localeCompare(right);
+        return (
+          Number(rightStarts) - Number(leftStarts) || left.localeCompare(right)
+        );
       })
       .slice(0, 10);
   });
 
   function addValue(value: string) {
     const clean = value.trim();
-    if (!clean || values.some((item) => item.toLowerCase() === clean.toLowerCase())) return;
+    if (
+      !clean ||
+      values.some((item) => item.toLowerCase() === clean.toLowerCase())
+    )
+      return;
     values = [...values, clean];
     query = "";
     activeIndex = 0;
@@ -80,7 +89,12 @@
     {#each values as value}
       <span class="tag">
         {value}
-        <button type="button" tabindex="-1" onclick={() => removeValue(value)} aria-label={`Remove ${value}`}><X size={11} /></button>
+        <button
+          type="button"
+          tabindex="-1"
+          onclick={() => removeValue(value)}
+          aria-label={`Remove ${value}`}><X size={11} /></button
+        >
       </span>
     {/each}
     <input
@@ -92,7 +106,9 @@
       aria-autocomplete="list"
       aria-expanded={open}
       aria-controls={listboxId}
-      aria-activedescendant={open && matches[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
+      aria-activedescendant={open && matches[activeIndex]
+        ? `${id}-option-${activeIndex}`
+        : undefined}
       onfocus={() => (open = true)}
       oninput={() => {
         open = true;
@@ -101,7 +117,13 @@
       onkeydown={handleKeydown}
       onblur={handleBlur}
     />
-    <button class="toggle" type="button" tabindex="-1" onclick={() => (open = !open)} aria-label="Toggle muscle suggestions">
+    <button
+      class="toggle"
+      type="button"
+      tabindex="-1"
+      onclick={() => (open = !open)}
+      aria-label="Toggle muscle suggestions"
+    >
       <span class:turned={open}><ChevronDown size={15} /></span>
     </button>
   </div>
@@ -123,8 +145,15 @@
           {#if index === activeIndex}<kbd>Tab</kbd>{/if}
         </button>
       {/each}
-      {#if query.trim() && !options.some((option) => option.toLowerCase() === query.trim().toLowerCase())}
-        <button class="custom" type="button" onmousedown={(event) => event.preventDefault()} onclick={() => addValue(query)}>
+      {#if query.trim() && !options.some((option) => option.toLowerCase() === query
+              .trim()
+              .toLowerCase())}
+        <button
+          class="custom"
+          type="button"
+          onmousedown={(event) => event.preventDefault()}
+          onclick={() => addValue(query)}
+        >
           Use “{query.trim()}”
         </button>
       {/if}
@@ -139,39 +168,41 @@
   }
 
   .tag-control {
-    min-height: 37px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 5px;
-    padding: 4px 3px 4px 7px;
+    gap: 6px;
+    padding: 5px 3px 5px 7px;
     color: var(--text);
     background: var(--mantle);
-    border: 1px solid var(--surface-1);
-    border-radius: 2px;
+    border: 1px solid var(--line-strong);
+    border-radius: 11px;
+    transition: 140ms ease;
   }
 
   .tag-control:focus-within,
   .tag-control.open {
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
   .tag {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    padding: 4px 4px 4px 7px;
+    gap: 4px;
+    padding: 4px 4px 4px 8px;
     color: var(--text);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-mid);
     border-radius: 999px;
-    font-size: 0.59rem;
+    font-size: 0.67rem;
+    font-weight: 650;
   }
 
   .tag button {
-    width: 16px;
-    height: 16px;
+    width: 22px;
+    height: 22px;
     display: grid;
     place-items: center;
     padding: 0;
@@ -188,12 +219,14 @@
   input {
     min-width: 105px;
     flex: 1;
-    padding: 5px 2px;
+    min-height: 34px;
+    padding: 6px 3px;
     color: var(--text);
     background: transparent;
     border: 0;
     outline: 0;
-    font-size: 0.7rem;
+    font-size: 0.77rem;
+    font-weight: 620;
   }
 
   input::placeholder {
@@ -201,8 +234,8 @@
   }
 
   .toggle {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     flex: 0 0 auto;
     display: grid;
     place-items: center;
@@ -225,14 +258,15 @@
   .suggestions {
     position: absolute;
     z-index: 70;
-    top: calc(100% + 5px);
+    top: calc(100% + 7px);
     right: 0;
     left: 0;
-    max-height: 230px;
+    max-height: 260px;
     overflow-y: auto;
-    padding: 5px;
-    background: var(--mantle);
-    border: 1px solid var(--surface-2);
+    padding: 6px;
+    background: var(--panel-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
   }
 
@@ -242,26 +276,47 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 8px 9px;
+    min-height: 40px;
+    padding: 9px 10px;
     color: var(--subtext);
     text-align: left;
     background: transparent;
     border: 0;
-    font-size: 0.66rem;
+    border-radius: 8px;
+    font-size: 0.71rem;
+    font-weight: 650;
   }
 
   .suggestions button.active {
     color: var(--text);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: var(--accent-soft);
   }
 
   .suggestions button.custom {
     color: var(--accent);
-    border-top: 1px solid var(--surface-1);
+    border-top: 1px solid var(--line);
   }
 
   kbd {
     color: var(--accent);
-    font: 400 0.5rem "Space Mono", monospace;
+    font:
+      700 0.55rem "Space Mono",
+      monospace;
+  }
+
+  @media (max-width: 700px) {
+    input {
+      font-size: 1rem;
+    }
+
+    .toggle {
+      width: 42px;
+      height: 42px;
+    }
+
+    .suggestions button {
+      min-height: 44px;
+      font-size: 0.78rem;
+    }
   }
 </style>

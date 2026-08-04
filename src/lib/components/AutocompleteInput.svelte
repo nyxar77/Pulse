@@ -24,7 +24,9 @@
       .sort((left, right) => {
         const leftStarts = left.toLowerCase().startsWith(query);
         const rightStarts = right.toLowerCase().startsWith(query);
-        return Number(rightStarts) - Number(leftStarts) || left.localeCompare(right);
+        return (
+          Number(rightStarts) - Number(leftStarts) || left.localeCompare(right)
+        );
       })
       .slice(0, 10);
   });
@@ -44,7 +46,11 @@
       event.preventDefault();
       open = true;
       activeIndex = Math.max(activeIndex - 1, 0);
-    } else if ((event.key === "Enter" || event.key === "Tab") && open && matches[activeIndex]) {
+    } else if (
+      (event.key === "Enter" || event.key === "Tab") &&
+      open &&
+      matches[activeIndex]
+    ) {
       event.preventDefault();
       choose(matches[activeIndex]);
     } else if (event.key === "Escape") {
@@ -68,7 +74,9 @@
       aria-autocomplete="list"
       aria-expanded={open}
       aria-controls={listboxId}
-      aria-activedescendant={open && matches[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
+      aria-activedescendant={open && matches[activeIndex]
+        ? `${id}-option-${activeIndex}`
+        : undefined}
       onfocus={() => (open = true)}
       oninput={() => {
         open = true;
@@ -77,7 +85,12 @@
       onkeydown={handleKeydown}
       onblur={handleBlur}
     />
-    <button type="button" tabindex="-1" onclick={() => (open = !open)} aria-label="Toggle equipment suggestions">
+    <button
+      type="button"
+      tabindex="-1"
+      onclick={() => (open = !open)}
+      aria-label="Toggle equipment suggestions"
+    >
       <span class:turned={open}><ChevronDown size={15} /></span>
     </button>
   </div>
@@ -110,29 +123,33 @@
   }
 
   .autocomplete-control {
+    min-height: 44px;
     display: flex;
     align-items: center;
     color: var(--text);
     background: var(--mantle);
-    border: 1px solid var(--surface-1);
-    border-radius: 2px;
+    border: 1px solid var(--line-strong);
+    border-radius: 11px;
+    transition: 140ms ease;
   }
 
   .autocomplete-control:focus-within,
   .autocomplete-control.open {
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
   input {
     min-width: 0;
     width: 100%;
-    padding: 9px 2px 9px 10px;
+    min-height: 42px;
+    padding: 10px 3px 10px 11px;
     color: var(--text);
     background: transparent;
     border: 0;
     outline: 0;
-    font-size: 0.7rem;
+    font-size: 0.77rem;
+    font-weight: 620;
   }
 
   input::placeholder {
@@ -140,13 +157,13 @@
   }
 
   .autocomplete-control > button {
-    width: 34px;
-    height: 34px;
+    width: 42px;
+    height: 42px;
     flex: 0 0 auto;
     display: grid;
     place-items: center;
     padding: 0;
-    color: var(--overlay);
+    color: var(--subtext);
     background: transparent;
     border: 0;
   }
@@ -164,14 +181,15 @@
   .suggestions {
     position: absolute;
     z-index: 70;
-    top: calc(100% + 5px);
+    top: calc(100% + 7px);
     right: 0;
     left: 0;
-    max-height: 230px;
+    max-height: 260px;
     overflow-y: auto;
-    padding: 5px;
-    background: var(--mantle);
-    border: 1px solid var(--surface-2);
+    padding: 6px;
+    background: var(--panel-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
   }
 
@@ -181,21 +199,42 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 8px 9px;
+    min-height: 40px;
+    padding: 9px 10px;
     color: var(--subtext);
     text-align: left;
     background: transparent;
     border: 0;
-    font-size: 0.66rem;
+    border-radius: 8px;
+    font-size: 0.71rem;
+    font-weight: 650;
   }
 
   .suggestions button.active {
     color: var(--text);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: var(--accent-soft);
   }
 
   kbd {
     color: var(--accent);
-    font: 400 0.5rem "Space Mono", monospace;
+    font:
+      700 0.55rem "Space Mono",
+      monospace;
+  }
+
+  @media (max-width: 700px) {
+    input {
+      font-size: 1rem;
+    }
+
+    .autocomplete-control > button {
+      width: 44px;
+      height: 44px;
+    }
+
+    .suggestions button {
+      min-height: 44px;
+      font-size: 0.78rem;
+    }
   }
 </style>
