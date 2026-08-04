@@ -501,6 +501,13 @@
     return new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(date);
   }
 
+  function weekDateNumber(index: number): string {
+    if (!currentDate) return "";
+    const date = new Date(currentDate);
+    date.setDate(date.getDate() - weekIndex(date) + index);
+    return String(date.getDate());
+  }
+
   function exerciseCountForDay(dayId: string | null): number {
     if (!dayId) return 0;
     return dayId === activeDayId ? dayExercises.length : (workouts[dayId]?.length ?? 0);
@@ -670,8 +677,8 @@
               }}
               aria-label={`${weekday}: ${exerciseCountForDay(schedule[index]) ? `${exerciseCountForDay(schedule[index])} exercises` : "Rest day"}`}
             >
-              <span>{weekday.slice(0, 1)}</span>
-              <i></i>
+              <span>{weekday.slice(0, 2)}</span>
+              <strong>{weekDateNumber(index)}</strong>
             </button>
           {/each}
         </div>

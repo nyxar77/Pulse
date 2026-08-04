@@ -707,15 +707,15 @@ md-fab {
 
 .week-strip button {
   width: 44px;
-  height: 52px;
+  height: 58px;
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 7px;
+  gap: 3px;
   padding: 0;
   color: var(--md-sys-color-on-surface-variant);
-  border: 0;
-  border-radius: 18px;
+  border: 1px solid transparent;
+  border-radius: 16px;
   background: transparent;
 }
 
@@ -729,19 +729,26 @@ md-fab {
 }
 
 .week-strip span {
-  font-size: 0.78rem;
-  font-weight: 650;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.week-strip i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: transparent;
+.week-strip strong {
+  color: var(--md-sys-color-on-surface);
+  font-size: 0.94rem;
+  font-weight: 550;
 }
 
-.week-strip button.assigned i {
-  background: currentColor;
+.week-strip button.assigned:not(.today) strong {
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
+.week-strip button.today strong {
+  color: inherit;
+  font-weight: 700;
 }
 
 .today-screen {
@@ -1963,8 +1970,8 @@ md-fab {
 
   .week-strip button {
     width: 100%;
-    height: 48px;
-    border-radius: 16px;
+    height: 56px;
+    border-radius: 15px;
   }
 
   .today-summary {
