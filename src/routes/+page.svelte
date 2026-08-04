@@ -2,27 +2,25 @@
 	import { browser } from '$app/environment';
 	import { exerciseLibrary, starterWorkout } from '$lib/data';
 	import type { Exercise, MuscleGroup, TrainingDay, WorkoutExercise } from '$lib/types';
-	import {
-		Activity,
-		ArrowDown,
-		ArrowUp,
-		Check,
-		ChevronDown,
-		Download,
-		Ellipsis,
-		ExternalLink,
-		FileJson,
-		GripVertical,
-		LibraryBig,
-		Palette,
-		Pencil,
-		Plus,
-		Save,
-		Search,
-		Trash2,
-		Upload,
-		X
-	} from 'lucide-svelte';
+	import Activity from 'lucide-svelte/icons/activity';
+	import ArrowDown from 'lucide-svelte/icons/arrow-down';
+	import ArrowUp from 'lucide-svelte/icons/arrow-up';
+	import Check from 'lucide-svelte/icons/check';
+	import ChevronDown from 'lucide-svelte/icons/chevron-down';
+	import Download from 'lucide-svelte/icons/download';
+	import Ellipsis from 'lucide-svelte/icons/ellipsis';
+	import ExternalLink from 'lucide-svelte/icons/external-link';
+	import FileJson from 'lucide-svelte/icons/file-json';
+	import GripVertical from 'lucide-svelte/icons/grip-vertical';
+	import LibraryBig from 'lucide-svelte/icons/library-big';
+	import Palette from 'lucide-svelte/icons/palette';
+	import Pencil from 'lucide-svelte/icons/pencil';
+	import Plus from 'lucide-svelte/icons/plus';
+	import Save from 'lucide-svelte/icons/save';
+	import Search from 'lucide-svelte/icons/search';
+	import Trash2 from 'lucide-svelte/icons/trash-2';
+	import Upload from 'lucide-svelte/icons/upload';
+	import X from 'lucide-svelte/icons/x';
 	import { onMount } from 'svelte';
 
 	const storageKey = 'pulse-ledger-v2';
