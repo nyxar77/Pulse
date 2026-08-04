@@ -1,7 +1,5 @@
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
-
 :root {
-  font-family: "Manrope", system-ui, sans-serif;
+  font-family: "Manrope Variable", "Manrope", system-ui, sans-serif;
   color: #cdd6f4;
   background: #11111b;
   font-synthesis: none;
@@ -12,12 +10,16 @@
 }
 
 html {
+  min-height: 100%;
   background: #11111b;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100%;
+  overflow-x: hidden;
 }
 
 button,
@@ -27,6 +29,7 @@ input {
 
 button {
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:disabled {
@@ -185,7 +188,12 @@ a {
 }
 
 .app {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   min-height: 100vh;
+  min-height: 100dvh;
   color: var(--text);
   background-color: var(--base);
   background-image:
@@ -208,12 +216,12 @@ a {
   position: sticky;
   z-index: 20;
   top: 0;
-  min-height: 70px;
+  min-height: calc(70px + var(--safe-top));
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 0 clamp(20px, 4vw, 58px);
+  padding: var(--safe-top) max(clamp(20px, 4vw, 58px), var(--safe-right)) 0 max(clamp(20px, 4vw, 58px), var(--safe-left));
   background: color-mix(in srgb, var(--base) 92%, transparent);
   border-bottom: 1px solid var(--surface-1);
   backdrop-filter: blur(18px);
@@ -602,6 +610,7 @@ a {
 .ledger {
   width: min(1440px, 100%);
   min-height: calc(100vh - 71px);
+  min-height: calc(100dvh - 71px - var(--safe-top));
   display: grid;
   grid-template-columns: 244px minmax(0, 1fr);
   margin: 0 auto;
@@ -942,8 +951,24 @@ a {
   background: var(--accent);
 }
 
+.movement.reordering .sequence-number > span {
+  display: none;
+}
+
 .movement.reordering:active {
   cursor: grabbing;
+}
+
+.movement.dragging {
+  z-index: 2;
+  opacity: 0.76;
+  background: color-mix(in srgb, var(--accent) 9%, var(--mantle));
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.24);
+}
+
+body.is-reordering {
+  overflow: hidden;
+  user-select: none;
 }
 
 .movement-main {
@@ -965,6 +990,70 @@ a {
 
 .sequence-number svg {
   color: var(--accent);
+}
+
+.drag-handle {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  margin-left: -12px;
+  padding: 0;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.reorder-strip {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0 0 63px;
+  padding: 5px 5px 5px 11px;
+  color: var(--overlay);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--surface-1));
+  font: 400 0.56rem "Space Mono", monospace;
+  text-transform: uppercase;
+}
+
+.reorder-strip > span,
+.reorder-strip > div {
+  display: flex;
+  align-items: center;
+}
+
+.reorder-strip > span {
+  gap: 6px;
+}
+
+.reorder-strip > div {
+  gap: 4px;
+}
+
+.reorder-strip button {
+  width: 38px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--surface-1);
+}
+
+.reorder-strip button:disabled {
+  color: var(--surface-2);
 }
 
 .movement-name {
@@ -1371,6 +1460,7 @@ a {
   top: 0;
   right: 0;
   bottom: 0;
+  min-height: 100dvh;
   width: min(560px, calc(100vw - 24px));
   overflow-y: auto;
   padding: 42px 34px;
@@ -1774,8 +1864,8 @@ a {
 
 @media (max-width: 700px) {
   .masthead {
-    min-height: 62px;
-    padding: 0 15px;
+    min-height: calc(62px + var(--safe-top));
+    padding: var(--safe-top) max(15px, var(--safe-right)) 0 max(15px, var(--safe-left));
   }
 
   .wordmark-context,
@@ -1787,16 +1877,23 @@ a {
     gap: 8px;
   }
 
-  .appearance-panel {
-    position: fixed;
-    top: 72px;
-    right: 15px;
+  .appearance-trigger,
+  .data-trigger {
+    width: 44px;
+    height: 44px;
   }
 
+  .appearance-panel,
   .data-panel {
     position: fixed;
-    top: 72px;
-    right: 15px;
+    top: auto;
+    right: max(12px, var(--safe-right));
+    bottom: max(12px, var(--safe-bottom));
+    left: max(12px, var(--safe-left));
+    width: auto;
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+    overflow-y: auto;
+    border-radius: 14px;
   }
 
   .ledger {
@@ -1806,8 +1903,8 @@ a {
   .programme-index {
     position: sticky;
     z-index: 12;
-    top: 62px;
-    padding: 12px 12px 0;
+    top: calc(62px + var(--safe-top));
+    padding: 12px max(12px, var(--safe-right)) 0 max(12px, var(--safe-left));
     background: color-mix(in srgb, var(--base) 94%, transparent);
     border-right: 0;
     border-bottom: 1px solid var(--surface-1);
@@ -1862,7 +1959,7 @@ a {
   }
 
   .session-page {
-    padding: 34px 14px 100px;
+    padding: 34px max(14px, var(--safe-right)) calc(118px + var(--safe-bottom)) max(14px, var(--safe-left));
   }
 
   .session-heading {
@@ -1882,10 +1979,21 @@ a {
   }
 
   .programme-actions {
-    width: 100%;
+    position: fixed;
+    z-index: 18;
+    right: max(12px, var(--safe-right));
+    bottom: max(10px, var(--safe-bottom));
+    left: max(12px, var(--safe-left));
+    width: auto;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+    padding: 7px;
+    background: color-mix(in srgb, var(--mantle) 92%, transparent);
+    border: 1px solid var(--surface-1);
+    border-radius: 16px;
+    box-shadow: 0 14px 45px rgba(0, 0, 0, 0.34);
+    backdrop-filter: blur(18px);
   }
 
   .programme-actions button {
@@ -1915,7 +2023,7 @@ a {
   }
 
   .movement-main {
-    grid-template-columns: 29px minmax(0, 1fr) 40px;
+    grid-template-columns: 38px minmax(0, 1fr) 40px;
     gap: 8px;
   }
 
@@ -1939,7 +2047,7 @@ a {
   }
 
   .prescription-readout {
-    margin: 20px 0 0 37px;
+    margin: 20px 0 0 46px;
   }
 
   .primary-prescription strong {
@@ -1963,7 +2071,7 @@ a {
   }
 
   .movement-details {
-    margin: 18px 0 0 37px;
+    margin: 18px 0 0 46px;
   }
 
   .details-toolbar {
@@ -1980,6 +2088,38 @@ a {
   .delete-movement {
     width: 42px;
     height: 42px;
+  }
+
+  .drag-handle {
+    width: 42px;
+    height: 42px;
+    margin-left: -5px;
+  }
+
+  .reorder-strip {
+    margin: 14px 0 0;
+    border-radius: 8px;
+  }
+
+  .reorder-strip button {
+    width: 42px;
+    height: 40px;
+  }
+
+  .exercise-vault {
+    width: 100%;
+    padding: calc(24px + var(--safe-top)) max(18px, var(--safe-right)) calc(28px + var(--safe-bottom)) max(18px, var(--safe-left));
+    border-left: 0;
+  }
+
+  .exercise-form-grid input,
+  .exercise-form-grid textarea,
+  .vault-search input,
+  .text-prescription input,
+  .movement-note input,
+  .weight-stepper input,
+  .day-name-form input {
+    font-size: 1rem;
   }
 }
 
@@ -1999,11 +2139,6 @@ a {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .exercise-vault {
-    width: 100%;
-    padding: 30px 20px;
   }
 
   .exercise-form-grid {

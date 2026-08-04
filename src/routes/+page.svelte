@@ -86,6 +86,7 @@
 	let transferMessage = '';
 	let appearanceAnchor: HTMLDivElement | undefined;
 	let dataAnchor: HTMLDivElement | undefined;
+	let dragPointerId: number | null = null;
 
 	$: availableGroups = ['All', ...new Set([...suggestedGroups, ...savedExercises.flatMap((exercise) => [...exercise.muscles, ...(exercise.tags ?? [])])])];
 	$: archivedCount = savedExercises.filter((exercise) => exercise.archived).length;
@@ -99,6 +100,7 @@
 
 	$: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? 'Untitled day';
 	$: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
+	$: if (browser) void applyNativeTheme(theme);
 	$: if (browser && hydrated) {
 		saveLedgerData({ workouts: savedWorkouts, days, activeDayId, theme, accent, exercises: savedExercises });
 	}
@@ -367,22 +369,34 @@
 		dayExercises = reordered;
 	}
 
-	function handleDragStart(event: DragEvent, id: string) {
+	function startPointerReorder(event: PointerEvent, id: string) {
+		if (!reorderMode || event.button !== 0) return;
+		event.preventDefault();
 		draggedExerciseId = id;
-		event.dataTransfer?.setData('text/plain', id);
-		if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+		dragPointerId = event.pointerId;
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		document.body.classList.add('is-reordering');
 	}
 
-	function handleDrop(event: DragEvent, destinationIndex: number) {
+	function handlePointerReorder(event: PointerEvent) {
+		if (dragPointerId !== event.pointerId || !draggedExerciseId) return;
 		event.preventDefault();
-		const id = event.dataTransfer?.getData('text/plain') || draggedExerciseId;
-		const sourceIndex = dayExercises.findIndex((exercise) => exercise.id === id);
-		if (sourceIndex < 0 || sourceIndex === destinationIndex) return;
+		const destination = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-exercise-id]');
+		const destinationId = destination?.dataset.exerciseId;
+		const sourceIndex = dayExercises.findIndex((exercise) => exercise.id === draggedExerciseId);
+		const destinationIndex = dayExercises.findIndex((exercise) => exercise.id === destinationId);
+		if (sourceIndex < 0 || destinationIndex < 0 || sourceIndex === destinationIndex) return;
 		const reordered = [...dayExercises];
 		const [exercise] = reordered.splice(sourceIndex, 1);
 		reordered.splice(destinationIndex, 0, exercise);
 		dayExercises = reordered;
+	}
+
+	function stopPointerReorder(event: PointerEvent) {
+		if (dragPointerId !== event.pointerId) return;
 		draggedExerciseId = null;
+		dragPointerId = null;
+		document.body.classList.remove('is-reordering');
 	}
 
 	function createDay() {
@@ -549,7 +563,13 @@
 	}
 </script>
 
-<svelte:window onpointerdown={handleOutsidePointer} onkeydown={handlePopoverKeydown} />
+<svelte:window
+	onpointerdown={handleOutsidePointer}
+	onpointermove={handlePointerReorder}
+	onpointerup={stopPointerReorder}
+	onpointercancel={stopPointerReorder}
+	onkeydown={handlePopoverKeydown}
+/>
 
 <svelte:head>
 	<title>Pulse — Training ledger</title>
@@ -683,16 +703,16 @@
 				<div class="movement-list">
 					{#each dayExercises as exercise, index (exercise.id)}
 						<article
+							data-exercise-id={exercise.id}
 							class:reordering={reorderMode}
+							class:dragging={draggedExerciseId === exercise.id}
 							class="movement"
-							draggable={reorderMode}
-							ondragstart={(event) => handleDragStart(event, exercise.id)}
-							ondragover={(event) => reorderMode && event.preventDefault()}
-							ondrop={(event) => reorderMode && handleDrop(event, index)}
 						>
 							<div class="movement-main">
 								<div class="sequence-number">
-									{#if reorderMode}<GripVertical size={17} />{/if}
+									{#if reorderMode}
+										<button class="drag-handle" onpointerdown={(event) => startPointerReorder(event, exercise.id)} aria-label={`Drag ${exercise.name} to change its priority`}><GripVertical size={19} /></button>
+									{/if}
 									<span>{String(index + 1).padStart(2, '0')}</span>
 								</div>
 
@@ -706,6 +726,16 @@
 									<ChevronDown class={expanded.has(exercise.id) ? 'turned' : ''} size={17} />
 								</button>
 							</div>
+
+							{#if reorderMode}
+								<div class="reorder-strip">
+									<span><GripVertical size={14} /> Hold the grip and move</span>
+									<div>
+										<button onclick={() => moveExercise(index, -1)} disabled={index === 0} aria-label={`Move ${exercise.name} up`}><ArrowUp size={16} /></button>
+										<button onclick={() => moveExercise(index, 1)} disabled={index === dayExercises.length - 1} aria-label={`Move ${exercise.name} down`}><ArrowDown size={16} /></button>
+									</div>
+								</div>
+							{/if}
 
 							{#if editMode}
 								<div class="prescription-editor">
@@ -730,13 +760,7 @@
 									<div class="details-toolbar">
 										{#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open form reference</a>{/if}
 										{#if editMode}<label class="movement-note"><span>Private cue</span><input placeholder="What should you remember?" bind:value={exercise.note} oninput={touch} /></label>{:else if exercise.note}<p class="movement-note-readout">{exercise.note}</p>{/if}
-										{#if reorderMode}
-											<div class="move-buttons">
-												<button onclick={() => moveExercise(index, -1)} disabled={index === 0} aria-label={`Move ${exercise.name} up`}><ArrowUp size={15} /></button>
-												<button onclick={() => moveExercise(index, 1)} disabled={index === dayExercises.length - 1} aria-label={`Move ${exercise.name} down`}><ArrowDown size={15} /></button>
-											</div>
-										{/if}
-										{#if editMode}<button class="delete-movement" onclick={() => removeExercise(exercise.id)} aria-label={`Remove ${exercise.name}`}><Trash2 size={15} /></button>{/if}
+									{#if editMode}<button class="delete-movement" onclick={() => removeExercise(exercise.id)} aria-label={`Remove ${exercise.name}`}><Trash2 size={15} /></button>{/if}
 									</div>
 								</div>
 							{/if}
