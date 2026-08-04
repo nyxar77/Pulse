@@ -24,3 +24,7 @@ export type TrainingDay = {
   id: string;
   name: string;
 };
+
+export type WeekSchedule = Array<string | null>;
+
+export type TrainingHistory = Record<string, string[]>;
