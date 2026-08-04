@@ -11,6 +11,7 @@
 		ExternalLink,
 		GripVertical,
 		LibraryBig,
+		Palette,
 		Pencil,
 		Plus,
 		Save,
@@ -23,6 +24,10 @@
 	const storageKey = 'pulse-ledger-v2';
 	const legacyStorageKey = 'pulse-push-strength-v1';
 	const muscleGroups: Array<MuscleGroup | 'All'> = ['All', 'Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core'];
+	const themes = ['latte', 'frappe', 'macchiato', 'mocha'] as const;
+	const accents = ['rosewater', 'flamingo', 'pink', 'mauve', 'red', 'maroon', 'peach', 'yellow', 'green', 'teal', 'sky', 'sapphire', 'blue', 'lavender'] as const;
+	type Theme = (typeof themes)[number];
+	type Accent = (typeof accents)[number];
 
 	let dayExercises: WorkoutExercise[] = starterWorkout;
 	let activeDayId = 'day-1';
@@ -32,6 +37,9 @@
 	let selectedMuscle: MuscleGroup | 'All' = 'All';
 	let reorderMode = false;
 	let libraryOpen = false;
+	let appearanceOpen = false;
+	let theme: Theme = 'mocha';
+	let accent: Accent = 'mauve';
 	let expanded = new Set<string>();
 	let hydrated = false;
 	let draggedExerciseId: string | null = null;
@@ -50,7 +58,7 @@
 	$: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? 'Untitled day';
 	$: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
 	$: if (browser && hydrated) {
-		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDayId }));
+		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDayId, theme, accent }));
 	}
 
 	onMount(() => {
@@ -63,7 +71,11 @@
 					days: TrainingDay[] | string[];
 					activeDayId: string;
 					activeDay: string;
+					theme: Theme;
+					accent: Accent;
 				}>;
+				if (parsed.theme && themes.includes(parsed.theme)) theme = parsed.theme;
+				if (parsed.accent && accents.includes(parsed.accent)) accent = parsed.accent;
 				if (parsed.days?.length && typeof parsed.days[0] === 'object') {
 					days = parsed.days as TrainingDay[];
 					activeDayId = parsed.activeDayId ?? days[0].id;
@@ -196,7 +208,7 @@
 	<meta name="description" content="A training programme that follows your rules." />
 </svelte:head>
 
-<div class="app" data-theme="mocha">
+<div class="app" data-theme={theme} data-accent={accent}>
 	<header class="masthead">
 		<a class="wordmark" href="/" aria-label="Pulse home">
 			<span class="wordmark-icon"><Activity size={18} strokeWidth={2.4} /></span>
@@ -206,6 +218,37 @@
 
 		<div class="masthead-actions">
 			<p class="save-state"><span></span> Local autosave</p>
+			<div class="appearance-anchor">
+				<button class:active={appearanceOpen} class="appearance-trigger" onclick={() => (appearanceOpen = !appearanceOpen)} aria-expanded={appearanceOpen} aria-controls="appearance-panel" aria-label="Open appearance settings">
+					<Palette size={17} />
+				</button>
+
+				{#if appearanceOpen}
+					<section class="appearance-panel" id="appearance-panel" aria-label="Appearance settings">
+						<header><div><p class="kicker">Personalise</p><h2>Appearance</h2></div><button class="icon-button" onclick={() => (appearanceOpen = false)} aria-label="Close appearance settings"><X size={16} /></button></header>
+
+						<fieldset class="flavour-options">
+							<legend>Flavour</legend>
+							{#each themes as option}
+								<button class:active={theme === option} onclick={() => (theme = option)} aria-pressed={theme === option}>
+									<span class={`flavour-preview ${option}`}></span>{option}
+								</button>
+							{/each}
+						</fieldset>
+
+						<fieldset class="accent-options">
+							<legend>Accent · {accent}</legend>
+							<div>
+								{#each accents as option}
+									<button style={`--swatch: var(--${option})`} class:active={accent === option} onclick={() => (accent = option)} aria-label={`Use ${option} accent`} aria-pressed={accent === option} title={option}>
+										{#if accent === option}<Check size={13} strokeWidth={3} />{/if}
+									</button>
+								{/each}
+							</div>
+						</fieldset>
+					</section>
+				{/if}
+			</div>
 			<button class="vault-trigger" onclick={() => (libraryOpen = true)}>
 				<LibraryBig size={16} />
 				Exercise vault
