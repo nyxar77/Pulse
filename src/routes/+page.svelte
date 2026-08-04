@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import AutocompleteInput from '$lib/components/AutocompleteInput.svelte';
+	import TagCombobox from '$lib/components/TagCombobox.svelte';
 	import { exerciseLibrary, starterWorkout } from '$lib/data';
+	import { equipmentOptions, muscleOptions } from '$lib/options';
 	import type { Exercise, TrainingDay, WorkoutExercise } from '$lib/types';
 	import Activity from 'lucide-svelte/icons/activity';
 	import Archive from 'lucide-svelte/icons/archive';
@@ -43,7 +46,7 @@
 	};
 	type ExerciseDraft = {
 		name: string;
-		muscles: string;
+		muscles: string[];
 		tags: string;
 		equipment: string;
 		description: string;
@@ -144,7 +147,7 @@
 	}
 
 	function blankExerciseDraft(): ExerciseDraft {
-		return { name: '', muscles: '', tags: '', equipment: '', description: '', guideUrl: '', imageUrl: '' };
+		return { name: '', muscles: [], tags: '', equipment: '', description: '', guideUrl: '', imageUrl: '' };
 	}
 
 	function openExerciseCreator() {
@@ -159,7 +162,7 @@
 		editingExerciseId = exercise.id;
 		exerciseDraft = {
 			name: exercise.name,
-			muscles: exercise.muscles.join(', '),
+			muscles: [...exercise.muscles],
 			tags: (exercise.tags ?? []).join(', '),
 			equipment: exercise.equipment,
 			description: exercise.description,
@@ -179,7 +182,7 @@
 
 	function saveExerciseDefinition() {
 		const name = exerciseDraft.name.trim();
-		const muscles = parseLabels(exerciseDraft.muscles);
+		const muscles = exerciseDraft.muscles;
 		const tags = parseLabels(exerciseDraft.tags);
 		const guideUrl = exerciseDraft.guideUrl.trim();
 		const imageUrl = exerciseDraft.imageUrl.trim();
@@ -659,8 +662,8 @@
 					<header><div><p class="kicker">{editingExerciseId ? 'Edit definition' : 'New definition'}</p><h3>{editingExerciseId ? 'Refine exercise' : 'Save an exercise'}</h3></div><button type="button" class="icon-button" onclick={() => (exerciseEditorOpen = false)} aria-label="Close exercise editor"><X size={16} /></button></header>
 					<div class="exercise-form-grid">
 						<label class="wide"><span>Name</span><input bind:value={exerciseDraft.name} placeholder="e.g. Half-kneeling press" maxlength="80" /></label>
-						<label><span>Muscles</span><input bind:value={exerciseDraft.muscles} placeholder="Chest, triceps" /></label>
-						<label><span>Equipment</span><input bind:value={exerciseDraft.equipment} placeholder="Cable, rings, none…" /></label>
+						<div class="combo-field"><span>Muscles</span><TagCombobox id="exercise-muscles" bind:values={exerciseDraft.muscles} options={muscleOptions} placeholder="Type or open suggestions" /></div>
+						<div class="combo-field"><span>Equipment</span><AutocompleteInput id="exercise-equipment" bind:value={exerciseDraft.equipment} options={equipmentOptions} placeholder="Type or open suggestions" /></div>
 						<label class="wide"><span>Personal tags</span><input bind:value={exerciseDraft.tags} placeholder="Lengthened, elbow-friendly, skill…" /></label>
 						<label class="wide"><span>Instructions or cues</span><textarea bind:value={exerciseDraft.description} placeholder="Only shown when the exercise is expanded"></textarea></label>
 						<label class="wide"><span>Reference link · optional</span><input type="url" bind:value={exerciseDraft.guideUrl} placeholder="https://…" /></label>

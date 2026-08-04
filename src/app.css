@@ -1356,7 +1356,8 @@ a {
   gap: 13px 10px;
 }
 
-.exercise-form-grid label {
+.exercise-form-grid label,
+.exercise-form-grid .combo-field {
   min-width: 0;
   display: grid;
   gap: 6px;
@@ -1366,7 +1367,8 @@ a {
   grid-column: 1 / -1;
 }
 
-.exercise-form-grid label > span {
+.exercise-form-grid label > span,
+.exercise-form-grid .combo-field > span {
   color: var(--overlay);
   font:
     400 0.55rem "Space Mono",
@@ -1798,6 +1800,14 @@ a {
   .exercise-vault {
     width: 100%;
     padding: 30px 20px;
+  }
+
+  .exercise-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .exercise-form-grid label.wide {
+    grid-column: auto;
   }
 }
 
