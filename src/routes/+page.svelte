@@ -42,6 +42,7 @@
   import Copy from "lucide-svelte/icons/copy";
   import Download from "lucide-svelte/icons/download";
   import Dumbbell from "lucide-svelte/icons/dumbbell";
+  import EllipsisVertical from "lucide-svelte/icons/ellipsis-vertical";
   import ExternalLink from "lucide-svelte/icons/external-link";
   import FileJson from "lucide-svelte/icons/file-json";
   import GripVertical from "lucide-svelte/icons/grip-vertical";
@@ -83,6 +84,7 @@
   let currentDate: Date | null = initialDate;
   let activeView: AppView = "today";
   let selectedWeekday = initialWeekday;
+  let weekPickerOpen = false;
   let savedExercises: Exercise[] = exerciseLibrary.map((exercise) => ({
     ...exercise,
   }));
@@ -95,6 +97,7 @@
   let exerciseDraft: ExerciseDraft = blankExerciseDraft();
   let exerciseFormError = "";
   let deleteExerciseCandidateId: string | null = null;
+  let exerciseActionsId: string | null = null;
   let reorderMode = false;
   let libraryOpen = false;
   let theme: Theme = "mocha";
@@ -168,6 +171,7 @@
     void import("@capacitor/app").then(async ({ App }) => {
       const listener = await App.addListener("backButton", () => {
         if (exerciseEditorOpen) exerciseEditorOpen = false;
+        else if (exerciseActionsId) exerciseActionsId = null;
         else if (libraryOpen) closeLibrary(false);
         else if (editMode) toggleEditMode();
         else void App.minimizeApp();
@@ -262,6 +266,7 @@
     exerciseFormError = "";
     exerciseEditorOpen = true;
     deleteExerciseCandidateId = null;
+    exerciseActionsId = null;
   }
 
   function openExerciseEditor(exercise: Exercise) {
@@ -278,6 +283,7 @@
     exerciseFormError = "";
     exerciseEditorOpen = true;
     deleteExerciseCandidateId = null;
+    exerciseActionsId = null;
   }
 
   function duplicateExercise(exercise: Exercise) {
@@ -352,11 +358,13 @@
   function toggleExerciseArchive(exercise: Exercise) {
     savedExercises = savedExercises.map((item) => (item.id === exercise.id ? { ...item, archived: !item.archived } : item));
     deleteExerciseCandidateId = null;
+    exerciseActionsId = null;
   }
 
   function deleteExerciseDefinition(id: string) {
     savedExercises = savedExercises.filter((exercise) => exercise.id !== id);
     deleteExerciseCandidateId = null;
+    exerciseActionsId = null;
   }
 
   function parseLabels(value: string): string[] {
@@ -402,6 +410,7 @@
   }
 
   function addExercise(exercise: Exercise) {
+    exerciseActionsId = null;
     if (dayExercises.some((item) => item.id === exercise.id)) return;
     dayExercises = [
       ...dayExercises,
@@ -500,6 +509,7 @@
   function selectDay(dayId: string) {
     const weekday = days.findIndex((day) => day.id === dayId);
     if (weekday >= 0) selectedWeekday = weekday;
+    weekPickerOpen = false;
     if (dayId === activeDayId) return;
     workouts = { ...workouts, [activeDayId]: dayExercises };
     activeDayId = dayId;
@@ -579,6 +589,7 @@
   async function closeLibrary(returnFocus = true) {
     libraryOpen = false;
     exerciseEditorOpen = false;
+    exerciseActionsId = null;
     if (!returnFocus) return;
     await tick();
     addMovementButton?.focus();
@@ -588,6 +599,8 @@
     if (event.key !== "Escape") return;
     if (exerciseEditorOpen) {
       exerciseEditorOpen = false;
+    } else if (exerciseActionsId) {
+      exerciseActionsId = null;
     } else if (libraryOpen) {
       void closeLibrary();
     }
@@ -610,9 +623,6 @@
 
     <div class="masthead-actions">
       <p class="save-state"><span></span> Offline</p>
-      <button class:active={activeView === "settings"} class="appearance-trigger" onclick={() => showView("settings")} aria-label="Open settings">
-        <Settings size={20} />
-      </button>
     </div>
   </header>
 
@@ -767,27 +777,37 @@
               </div>
               <span>7 days</span>
             </div>
-            <div class="schedule-list">
-              {#each weekdays as weekday, index}
-                <button
-                  class:today={index === todayIndex}
-                  class:active={index === selectedWeekday}
-                  class="schedule-row"
-                  onclick={() => selectDay(days[index].id)}
-                >
-                  <span
-                    ><strong>{weekday}</strong>{#if index === todayIndex}<small>Today</small>{/if}</span
+            <button class="week-picker-toggle" onclick={() => (weekPickerOpen = !weekPickerOpen)} aria-expanded={weekPickerOpen}>
+              <span class="week-picker-icon"><CalendarDays size={20} /></span>
+              <span>
+                <strong>{activeDayName}</strong>
+                <small>{dayExercises.length ? `${dayExercises.length} ${dayExercises.length === 1 ? "exercise" : "exercises"}` : "Rest day"}</small>
+              </span>
+              <ChevronDown class={weekPickerOpen ? "turned" : ""} size={20} />
+            </button>
+            <div class:open={weekPickerOpen} class="schedule-collapse">
+              <div class="schedule-list">
+                {#each weekdays as weekday, index}
+                  <button
+                    class:today={index === todayIndex}
+                    class:active={index === selectedWeekday}
+                    class="schedule-row"
+                    onclick={() => selectDay(days[index].id)}
                   >
-                  <span class="day-status">
-                    {#if (days[index].id === activeDayId ? dayExercises : (workouts[days[index].id] ?? [])).length}
-                      {(days[index].id === activeDayId ? dayExercises : (workouts[days[index].id] ?? [])).length} exercises
-                    {:else}
-                      Rest day
-                    {/if}
-                  </span>
-                  <ChevronDown size={18} />
-                </button>
-              {/each}
+                    <span
+                      ><strong>{weekday}</strong>{#if index === todayIndex}<small>Today</small>{/if}</span
+                    >
+                    <span class="day-status">
+                      {#if (days[index].id === activeDayId ? dayExercises : (workouts[days[index].id] ?? [])).length}
+                        {(days[index].id === activeDayId ? dayExercises : (workouts[days[index].id] ?? [])).length} exercises
+                      {:else}
+                        Rest day
+                      {/if}
+                    </span>
+                    <ChevronDown size={18} />
+                  </button>
+                {/each}
+              </div>
             </div>
           </aside>
 
@@ -841,8 +861,9 @@
                         <div class="movement-name">
                           <h2>{exercise.name}</h2>
                           <p>
-                            {exercise.muscles.join(" / ")} <span>—</span>
-                            {exercise.equipment}
+                            <span class="movement-muscles">{exercise.muscles.join(" / ")}</span><span class="movement-divider">•</span><span
+                              >{exercise.equipment}</span
+                            >
                           </p>
                         </div>
 
@@ -917,22 +938,18 @@
                         </div>
                       {:else}
                         <div class="prescription-readout">
-                          <div class="primary-prescription">
-                            <div class="prescription-value">
-                              <span>Sets</span><strong>{exercise.sets}</strong>
-                            </div>
-                            <b aria-hidden="true">×</b>
-                            <div class="prescription-value load-value">
-                              <span>Load</span><strong
-                                >{weightLabel(exercise.load)}{#if parseWeight(exercise.load) !== null}<small>kg</small>{/if}</strong
-                              >
-                            </div>
-                          </div>
+                          <p class="primary-prescription">
+                            <span>Sets × load</span>
+                            <strong
+                              >{exercise.sets}<b aria-hidden="true">×</b>{weightLabel(exercise.load)}{#if parseWeight(exercise.load) !== null}<small>kg</small
+                                >{/if}</strong
+                            >
+                          </p>
                           <div class="secondary-prescription">
-                            <p>
+                            <p class="reps-readout">
                               <span>Reps</span><strong>{exercise.reps || "Open"}</strong>
                             </p>
-                            {#if exercise.rest && exercise.rest !== "—"}<p>
+                            {#if exercise.rest && exercise.rest !== "—"}<p class="rest-readout">
                                 <span>Rest</span><strong>{exercise.rest}</strong>
                               </p>{/if}
                           </div>
@@ -1166,38 +1183,48 @@
                   {#each exercise.tags as tag}<span>{tag}</span>{/each}
                 </div>{/if}
             </div>
-            {#if deleteExerciseCandidateId === exercise.id}
-              <div class="delete-exercise-confirm">
-                <span>Delete from the vault?</span><button onclick={() => (deleteExerciseCandidateId = null)}>Keep</button><button
-                  onclick={() => deleteExerciseDefinition(exercise.id)}>Delete</button
+            <div class="vault-item-actions">
+              {#if !exercise.archived}<button
+                  class:added={dayExercises.some((item) => item.id === exercise.id)}
+                  class="add-from-vault"
+                  onclick={() => addExercise(exercise)}
+                  disabled={dayExercises.some((item) => item.id === exercise.id)}
                 >
-              </div>
-            {:else}
-              <div class="vault-item-actions">
-                <button onclick={() => duplicateExercise(exercise)} aria-label={`Duplicate ${exercise.name}`} title="Duplicate"><Copy size={14} /></button>
-                {#if exercise.custom}<button onclick={() => openExerciseEditor(exercise)} aria-label={`Edit ${exercise.name}`} title="Edit"
-                    ><Pencil size={14} /></button
-                  >{/if}
-                <button
-                  onclick={() => toggleExerciseArchive(exercise)}
-                  aria-label={`${exercise.archived ? "Restore" : "Archive"} ${exercise.name}`}
-                  title={exercise.archived ? "Restore" : "Archive"}
-                  >{#if exercise.archived}<ArchiveRestore size={14} />{:else}<Archive size={14} />{/if}</button
-                >
-                {#if exercise.custom}<button
-                    class="vault-delete"
-                    onclick={() => (deleteExerciseCandidateId = exercise.id)}
-                    aria-label={`Delete ${exercise.name}`}
-                    title="Delete"><Trash2 size={14} /></button
-                  >{/if}
-                {#if !exercise.archived}<button
-                    class:added={dayExercises.some((item) => item.id === exercise.id)}
-                    class="add-from-vault"
-                    onclick={() => addExercise(exercise)}
-                    disabled={dayExercises.some((item) => item.id === exercise.id)}
+                  {#if dayExercises.some((item) => item.id === exercise.id)}<Check size={15} /> Added{:else}<Plus size={15} /> Add{/if}
+                </button>{/if}
+              <button
+                class="vault-more"
+                onclick={() => {
+                  exerciseActionsId = exerciseActionsId === exercise.id ? null : exercise.id;
+                  deleteExerciseCandidateId = null;
+                }}
+                aria-expanded={exerciseActionsId === exercise.id}
+                aria-controls={`${exercise.id}-actions`}
+                aria-label={`More actions for ${exercise.name}`}><EllipsisVertical size={19} /></button
+              >
+            </div>
+
+            {#if exerciseActionsId === exercise.id}
+              <div class="vault-item-menu" id={`${exercise.id}-actions`}>
+                {#if deleteExerciseCandidateId === exercise.id}
+                  <div class="delete-exercise-confirm">
+                    <span>Delete this exercise from the vault?</span>
+                    <div>
+                      <button onclick={() => (deleteExerciseCandidateId = null)}>Keep</button><button onclick={() => deleteExerciseDefinition(exercise.id)}
+                        >Delete</button
+                      >
+                    </div>
+                  </div>
+                {:else}
+                  <button onclick={() => duplicateExercise(exercise)}><Copy size={16} /><span>Duplicate</span></button>
+                  {#if exercise.custom}<button onclick={() => openExerciseEditor(exercise)}><Pencil size={16} /><span>Edit</span></button>{/if}
+                  <button onclick={() => toggleExerciseArchive(exercise)}
+                    >{#if exercise.archived}<ArchiveRestore size={16} /><span>Restore</span>{:else}<Archive size={16} /><span>Archive</span>{/if}</button
                   >
-                    {#if dayExercises.some((item) => item.id === exercise.id)}<Check size={14} /> Added{:else}<Plus size={14} /> Add{/if}
-                  </button>{/if}
+                  {#if exercise.custom}<button class="vault-delete" onclick={() => (deleteExerciseCandidateId = exercise.id)}
+                      ><Trash2 size={16} /><span>Delete</span></button
+                    >{/if}
+                {/if}
               </div>
             {/if}
           </article>

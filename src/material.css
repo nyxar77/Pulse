@@ -352,7 +352,6 @@ md-fab {
   background: var(--green);
 }
 
-.appearance-trigger,
 .icon-button,
 .icon-action,
 .row-action,
@@ -371,8 +370,6 @@ md-fab {
   background: transparent;
 }
 
-.appearance-trigger:hover,
-.appearance-trigger.active,
 .icon-button:hover,
 .icon-action:hover,
 .row-action:hover {
@@ -525,8 +522,7 @@ md-fab {
   display: none;
 }
 
-.import-confirm,
-.delete-exercise-confirm {
+.import-confirm {
   margin-top: 12px;
   padding: 14px;
   border-radius: 16px;
@@ -537,16 +533,14 @@ md-fab {
   margin: 0 0 12px;
 }
 
-.import-confirm div,
-.delete-exercise-confirm {
+.import-confirm div {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.import-confirm button,
-.delete-exercise-confirm button {
+.import-confirm button {
   min-height: 40px;
   padding: 0 14px;
   color: inherit;
@@ -555,8 +549,7 @@ md-fab {
   background: transparent;
 }
 
-.import-confirm .replace-data,
-.delete-exercise-confirm button:last-child {
+.import-confirm .replace-data {
   color: var(--md-sys-color-on-error);
   background: var(--md-sys-color-error);
 }
@@ -815,22 +808,41 @@ md-fab {
   transition: width 180ms ease;
 }
 
-.exercise-list,
-.movement-list {
+.exercise-list {
   overflow: hidden;
   border-radius: 22px;
   background: var(--md-sys-color-surface-container-low);
 }
 
-.exercise-row,
-.movement {
+.movement-list {
+  display: grid;
+  gap: 12px;
+}
+
+.exercise-row {
   min-width: 0;
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
-.exercise-row:last-child,
-.movement:last-child {
+.exercise-row:last-child {
   border-bottom: 0;
+}
+
+.movement {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-low);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 120ms ease;
+}
+
+.movement.expanded,
+.movement.reordering {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 58%, var(--md-sys-color-outline-variant));
 }
 
 .exercise-row.completed {
@@ -892,6 +904,23 @@ md-fab {
   font-size: 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.movement-muscles {
+  color: var(--md-sys-color-primary);
+  font-weight: 600;
+}
+
+.movement-name h2,
+.movement-name p {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.movement-divider {
+  margin-inline: 6px;
+  color: var(--md-sys-color-outline);
 }
 
 .exercise-dose {
@@ -1038,6 +1067,14 @@ md-fab {
   padding: 20px;
   border-radius: 24px;
   background: var(--md-sys-color-surface-container-low);
+}
+
+.week-picker-toggle {
+  display: none;
+}
+
+.schedule-collapse {
+  min-width: 0;
 }
 
 .section-heading {
@@ -1244,47 +1281,77 @@ md-fab {
 
 .prescription-readout {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px 22px;
+  grid-template-columns: minmax(150px, auto) minmax(180px, 1fr);
+  gap: 10px;
   padding: 0 16px 16px 80px;
 }
 
-.primary-prescription,
-.secondary-prescription {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.prescription-value,
-.secondary-prescription p {
+.primary-prescription {
   display: grid;
-  gap: 2px;
+  align-content: center;
+  gap: 3px;
+  min-height: 54px;
   margin: 0;
+  padding: 8px 14px;
+  border-radius: 15px;
+  background: var(--md-sys-color-primary-container);
 }
 
-.prescription-value > span,
+.primary-prescription > span,
 .secondary-prescription span {
   color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.68rem;
-  font-weight: 600;
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.prescription-value strong,
-.secondary-prescription strong {
-  font-size: 0.9rem;
-  font-weight: 550;
+.primary-prescription strong {
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 1.05rem;
+  font-weight: 650;
 }
 
-.prescription-value small {
+.primary-prescription strong b {
+  margin-inline: 7px;
+  color: var(--md-sys-color-primary);
+  font-weight: 500;
+}
+
+.primary-prescription small {
   margin-left: 3px;
   font-size: 0.72rem;
 }
 
-.primary-prescription > b {
-  color: var(--md-sys-color-on-surface-variant);
-  font-weight: 400;
+.secondary-prescription {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.secondary-prescription p {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 54px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.secondary-prescription strong {
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.reps-readout strong {
+  color: var(--blue);
+}
+
+.rest-readout strong {
+  color: var(--green);
 }
 
 .prescription-editor {
@@ -1645,6 +1712,11 @@ md-fab {
   gap: 8px;
   padding: 0 18px 10px;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.muscle-filters::-webkit-scrollbar {
+  display: none;
 }
 
 .muscle-filters button {
@@ -1662,11 +1734,11 @@ md-fab {
 
 .vault-item {
   min-height: 82px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
+  gap: 10px 14px;
+  padding: 12px 14px 12px 16px;
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
@@ -1715,7 +1787,8 @@ md-fab {
 .vault-item-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .vault-item-actions > button {
@@ -1732,12 +1805,82 @@ md-fab {
 
 .vault-item-actions .add-from-vault {
   width: auto;
-  min-width: 72px;
+  min-width: 76px;
   display: flex;
+  gap: 5px;
   padding: 0 14px;
   color: var(--md-sys-color-on-primary-container);
   border-radius: 999px;
   background: var(--md-sys-color-primary-container);
+}
+
+.vault-item-actions .vault-more[aria-expanded="true"] {
+  color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.vault-item-menu {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  animation: details-in 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.vault-item-menu > button {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--md-sys-color-on-surface-variant);
+  border: 0;
+  border-radius: 13px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.vault-item-menu > button:hover {
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.vault-item-menu > button.vault-delete {
+  color: var(--md-sys-color-error);
+}
+
+.delete-exercise-confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--md-sys-color-on-error-container);
+  border-radius: 14px;
+  background: var(--md-sys-color-error-container);
+}
+
+.delete-exercise-confirm > div {
+  display: flex;
+  gap: 6px;
+}
+
+.delete-exercise-confirm button {
+  min-height: 38px;
+  padding: 0 13px;
+  color: inherit;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.delete-exercise-confirm button:last-child {
+  color: var(--md-sys-color-on-error);
+  background: var(--md-sys-color-error);
 }
 
 .vault-empty {
@@ -1834,8 +1977,7 @@ md-fab {
     font-size: 1.2rem;
   }
 
-  .exercise-list,
-  .movement-list {
+  .exercise-list {
     border-radius: 20px;
   }
 
@@ -1868,39 +2010,35 @@ md-fab {
   }
 
   .app-navigation {
-    right: 0;
-    bottom: 0;
-    left: 0;
-    height: calc(76px + var(--safe-bottom));
-    justify-content: space-around;
-    padding: 6px max(8px, var(--safe-right)) var(--safe-bottom) max(8px, var(--safe-left));
-    border-radius: 0;
-    box-shadow: 0 -1px 0 var(--md-sys-color-outline-variant);
-    transform: none;
+    right: auto;
+    bottom: max(10px, calc(var(--safe-bottom) + 8px));
+    left: 50%;
+    width: min(calc(100% - 24px), 520px);
+    height: 66px;
+    justify-content: stretch;
+    padding: 5px;
+    border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 72%, transparent);
+    border-radius: 34px;
+    box-shadow: 0 10px 30px color-mix(in srgb, #000 34%, transparent);
+    transform: translateX(-50%);
   }
 
   .app-navigation button {
-    min-width: 82px;
-    height: 62px;
+    min-width: 0;
+    height: 56px;
+    flex: 1;
     flex-direction: column;
-    gap: 3px;
-    padding: 5px 14px;
-    border-radius: 20px;
+    gap: 2px;
+    padding: 4px 2px;
+    border-radius: 28px;
   }
 
   .app-navigation button.active {
-    background: transparent;
-  }
-
-  .app-navigation button.active svg {
-    box-sizing: content-box;
-    padding: 5px 20px;
-    border-radius: 999px;
     background: var(--md-sys-color-primary-container);
   }
 
   .app-navigation span {
-    font-size: 0.7rem;
+    font-size: 0.66rem;
   }
 
   .programme-screen > .screen-heading {
@@ -1912,12 +2050,92 @@ md-fab {
   }
 
   .week-schedule {
-    padding: 16px;
+    padding: 0;
+    background: transparent;
+  }
+
+  .week-schedule .section-heading {
+    display: none;
+  }
+
+  .week-picker-toggle {
+    width: 100%;
+    min-height: 68px;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    color: var(--md-sys-color-on-surface);
+    text-align: left;
+    border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: 20px;
+    background: var(--md-sys-color-surface-container-low);
+  }
+
+  .week-picker-icon {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    color: var(--md-sys-color-on-primary-container);
+    border-radius: 15px;
+    background: var(--md-sys-color-primary-container);
+  }
+
+  .week-picker-toggle > span:nth-child(2) {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .week-picker-toggle strong {
+    overflow: hidden;
+    font-size: 0.96rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .week-picker-toggle small {
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 0.76rem;
+  }
+
+  .week-picker-toggle > svg {
+    justify-self: center;
+    color: var(--md-sys-color-on-surface-variant);
+    transition: transform 160ms ease;
+  }
+
+  .week-picker-toggle > svg.turned {
+    transform: rotate(180deg);
+  }
+
+  .schedule-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    margin-top: 0;
+    opacity: 0;
+    transition:
+      grid-template-rows 180ms cubic-bezier(0.2, 0, 0, 1),
+      margin-top 180ms ease,
+      opacity 120ms ease;
+  }
+
+  .schedule-collapse.open {
+    grid-template-rows: 1fr;
+    margin-top: 8px;
+    opacity: 1;
   }
 
   .schedule-list {
+    min-height: 0;
     grid-template-columns: 1fr;
+    overflow: hidden;
+    padding-inline: 12px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: 20px;
+    background: var(--md-sys-color-surface-container-low);
   }
 
   .schedule-row {
@@ -1925,9 +2143,8 @@ md-fab {
   }
 
   .session-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 12px;
+    align-items: center;
+    gap: 10px;
   }
 
   .plan-title h2 {
@@ -1935,13 +2152,14 @@ md-fab {
   }
 
   .programme-actions {
-    width: 100%;
+    width: auto;
+    min-width: 0;
     justify-content: flex-start;
     overflow-x: auto;
   }
 
   .programme-actions .edit-toggle {
-    margin-left: auto;
+    margin-left: 0;
   }
 
   .programme-actions .add-movement {
@@ -1954,10 +2172,10 @@ md-fab {
   }
 
   .movement-main {
-    min-height: 76px;
+    min-height: 78px;
     grid-template-columns: 46px minmax(0, 1fr) 44px;
     gap: 8px;
-    padding: 11px 8px 10px 12px;
+    padding: 12px 8px 10px 12px;
   }
 
   .movement-name h2 {
@@ -1965,14 +2183,37 @@ md-fab {
   }
 
   .prescription-readout {
-    grid-template-columns: 1fr;
-    gap: 9px;
-    padding: 0 12px 14px 66px;
+    grid-template-columns: minmax(100px, 0.95fr) minmax(110px, 1fr);
+    gap: 7px;
+    padding: 0 12px 12px 66px;
   }
 
   .primary-prescription,
+  .secondary-prescription p {
+    min-height: 52px;
+  }
+
+  .primary-prescription {
+    padding-inline: 8px;
+  }
+
+  .primary-prescription strong {
+    font-size: 0.92rem;
+  }
+
   .secondary-prescription {
-    gap: 16px;
+    gap: 6px;
+  }
+
+  .secondary-prescription p {
+    padding-inline: 6px;
+  }
+
+  .secondary-prescription strong {
+    overflow: hidden;
+    font-size: 0.8rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .prescription-editor {
@@ -2062,19 +2303,26 @@ md-fab {
   }
 
   .vault-item {
-    min-height: 86px;
-    align-items: flex-start;
-    padding: 14px 12px 14px 16px;
-  }
-
-  .vault-item-actions {
-    max-width: 132px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    min-height: 76px;
+    padding: 11px 8px 11px 12px;
   }
 
   .vault-item-actions .add-from-vault {
-    min-width: 68px;
+    min-width: 70px;
+    padding-inline: 11px;
+  }
+
+  .vault-item-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .delete-exercise-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .delete-exercise-confirm > div {
+    justify-content: flex-end;
   }
 
   .exercise-editor {
@@ -2095,8 +2343,12 @@ md-fab {
 
 @media (max-width: 370px) {
   .app-navigation button {
-    min-width: 74px;
-    padding-inline: 8px;
+    min-width: 0;
+    padding-inline: 1px;
+  }
+
+  .app-navigation span {
+    font-size: 0.62rem;
   }
 
   .week-strip {
