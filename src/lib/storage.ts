@@ -103,3 +103,7 @@ export function saveLedgerData(ledger: StoredLedger): void {
 			}
 		});
 }
+
+export function flushLedgerWrites(): Promise<void> {
+	return writeQueue;
+}
