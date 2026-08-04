@@ -3,7 +3,9 @@
 	import AutocompleteInput from '$lib/components/AutocompleteInput.svelte';
 	import TagCombobox from '$lib/components/TagCombobox.svelte';
 	import { exerciseLibrary, starterWorkout } from '$lib/data';
+	import { applyNativeTheme, isNativeApp, shareLedgerFile } from '$lib/native';
 	import { equipmentOptions, muscleOptions } from '$lib/options';
+	import { loadLedgerData, saveLedgerData } from '$lib/storage';
 	import type { Exercise, TrainingDay, WorkoutExercise } from '$lib/types';
 	import Activity from 'lucide-svelte/icons/activity';
 	import Archive from 'lucide-svelte/icons/archive';
@@ -30,8 +32,6 @@
 	import X from 'lucide-svelte/icons/x';
 	import { onMount } from 'svelte';
 
-	const storageKey = 'pulse-ledger-v2';
-	const legacyStorageKey = 'pulse-push-strength-v1';
 	const suggestedGroups = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core'];
 	const themes = ['latte', 'frappe', 'macchiato', 'mocha'] as const;
 	const accents = ['rosewater', 'flamingo', 'pink', 'mauve', 'red', 'maroon', 'peach', 'yellow', 'green', 'teal', 'sky', 'sapphire', 'blue', 'lavender'] as const;
@@ -100,14 +100,38 @@
 	$: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? 'Untitled day';
 	$: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
 	$: if (browser && hydrated) {
-		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDayId, theme, accent, exercises: savedExercises }));
+		saveLedgerData({ workouts: savedWorkouts, days, activeDayId, theme, accent, exercises: savedExercises });
 	}
 
 	onMount(() => {
-		const saved = localStorage.getItem(storageKey) ?? localStorage.getItem(legacyStorageKey);
+		void hydrateLedger();
+		return () => document.body.classList.remove('is-reordering');
+	});
+
+	onMount(() => {
+		if (!isNativeApp()) return;
+
+		let removeBackListener: (() => Promise<void>) | undefined;
+		void import('@capacitor/app').then(async ({ App }) => {
+			const listener = await App.addListener('backButton', () => {
+				if (exerciseEditorOpen) exerciseEditorOpen = false;
+				else if (libraryOpen) libraryOpen = false;
+				else if (appearanceOpen) appearanceOpen = false;
+				else if (dataMenuOpen) dataMenuOpen = false;
+				else if (editMode) toggleEditMode();
+				else void App.minimizeApp();
+			});
+			removeBackListener = () => listener.remove();
+		});
+
+		return () => void removeBackListener?.();
+	});
+
+	async function hydrateLedger() {
+		const saved = await loadLedgerData();
 		if (saved) {
 			try {
-				const parsed = JSON.parse(saved) as Partial<{
+				const parsed = saved as Partial<{
 					dayExercises: WorkoutExercise[];
 					workouts: Record<string, WorkoutExercise[]>;
 					days: TrainingDay[] | string[];
@@ -130,12 +154,10 @@
 					workouts = { 'day-1': parsed.dayExercises };
 				}
 				dayExercises = [...(workouts[activeDayId] ?? [])];
-			} catch {
-				localStorage.removeItem(storageKey);
-			}
+			} catch {}
 		}
 		hydrated = true;
-	});
+	}
 
 	function migrateLegacyProgramme(legacyDays: string[], legacyWorkouts: Record<string, WorkoutExercise[]>, legacyActive?: string) {
 		const defaultNames: Record<string, string> = {
@@ -409,7 +431,7 @@
 		deleteCandidateId = null;
 	}
 
-	function exportLedger() {
+	async function exportLedger() {
 		const payload: LedgerExport = {
 			app: 'pulse',
 			version: 2,
@@ -418,13 +440,25 @@
 			programme: { days, workouts: savedWorkouts },
 			library: savedExercises
 		};
-		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+		const contents = JSON.stringify(payload, null, 2);
+		const filename = `pulse-ledger-${new Date().toISOString().slice(0, 10)}.json`;
+		try {
+			if (await shareLedgerFile(filename, contents)) {
+				transferMessage = 'Opened your device share sheet.';
+				return;
+			}
+		} catch {
+			transferMessage = 'The export was cancelled.';
+			return;
+		}
+
+		const blob = new Blob([contents], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement('a');
 		anchor.href = url;
-		anchor.download = `pulse-ledger-${new Date().toISOString().slice(0, 10)}.json`;
+		anchor.download = filename;
 		anchor.click();
-		URL.revokeObjectURL(url);
+		window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 		transferMessage = 'Exported a complete copy.';
 	}
 
@@ -531,7 +565,7 @@
 		</a>
 
 		<div class="masthead-actions">
-			<p class="save-state"><span></span> Local autosave</p>
+			<p class="save-state"><span></span> Saved on device</p>
 			<div class="appearance-anchor" bind:this={appearanceAnchor}>
 				<button class:active={appearanceOpen} class="appearance-trigger" onclick={() => { appearanceOpen = !appearanceOpen; dataMenuOpen = false; }} aria-expanded={appearanceOpen} aria-controls="appearance-panel" aria-haspopup="dialog" aria-label="Open appearance settings">
 					<Palette size={17} />
