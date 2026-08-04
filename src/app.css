@@ -274,11 +274,13 @@ a {
   gap: 24px;
 }
 
-.appearance-anchor {
+.appearance-anchor,
+.data-anchor {
   position: relative;
 }
 
-.appearance-trigger {
+.appearance-trigger,
+.data-trigger {
   width: 34px;
   height: 34px;
   display: grid;
@@ -291,10 +293,21 @@ a {
 }
 
 .appearance-trigger:hover,
-.appearance-trigger.active {
+.appearance-trigger.active,
+.data-trigger:hover,
+.data-trigger.active {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .appearance-panel {
@@ -428,6 +441,127 @@ a {
 .accent-options button:hover,
 .accent-options button.active {
   outline-color: var(--swatch);
+}
+
+.data-panel {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 16px);
+  right: -48px;
+  width: min(330px, calc(100vw - 30px));
+  padding: 21px;
+  background: var(--mantle);
+  border: 1px solid var(--surface-2);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+  animation: appearance-in 140ms ease-out;
+}
+
+.data-panel > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--surface-1);
+}
+
+.data-panel > header > svg {
+  color: var(--accent);
+}
+
+.data-panel h2 {
+  margin: 0;
+  color: var(--text);
+  font:
+    400 1.8rem/1 "Instrument Serif",
+    serif;
+}
+
+.data-action {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  color: var(--overlay);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--surface-1);
+}
+
+.data-action:hover {
+  color: var(--accent);
+}
+
+.data-action > span {
+  display: grid;
+  gap: 3px;
+}
+
+.data-action strong {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.data-action small {
+  color: var(--overlay);
+  font-size: 0.61rem;
+}
+
+.import-confirm {
+  margin-top: 16px;
+  padding: 13px;
+  background: var(--base);
+  border-left: 2px solid var(--peach);
+}
+
+.import-confirm p {
+  margin: 0 0 12px;
+  color: var(--subtext);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.import-confirm p strong {
+  color: var(--text);
+}
+
+.import-confirm > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.import-confirm button {
+  padding: 6px 8px;
+  color: var(--subtext);
+  background: transparent;
+  border: 1px solid var(--surface-1);
+  font-size: 0.6rem;
+}
+
+.import-confirm button:hover {
+  color: var(--text);
+  border-color: var(--surface-2);
+}
+
+.import-confirm button.replace-data {
+  color: var(--base);
+  background: var(--peach);
+  border-color: var(--peach);
+}
+
+.transfer-message {
+  margin: 14px 0 0;
+  color: var(--green);
+  font:
+    400 0.59rem/1.45 "Space Mono",
+    monospace;
+}
+
+.transfer-message.transfer-error {
+  color: var(--red);
 }
 
 .save-state {
@@ -1268,6 +1402,12 @@ a {
   }
 
   .appearance-panel {
+    position: fixed;
+    top: 72px;
+    right: 15px;
+  }
+
+  .data-panel {
     position: fixed;
     top: 72px;
     right: 15px;

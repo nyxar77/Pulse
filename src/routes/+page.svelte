@@ -8,7 +8,10 @@
 		ArrowUp,
 		Check,
 		ChevronDown,
+		Download,
+		Ellipsis,
 		ExternalLink,
+		FileJson,
 		GripVertical,
 		LibraryBig,
 		Palette,
@@ -17,6 +20,7 @@
 		Save,
 		Search,
 		Trash2,
+		Upload,
 		X
 	} from 'lucide-svelte';
 	import { onMount } from 'svelte';
@@ -28,6 +32,13 @@
 	const accents = ['rosewater', 'flamingo', 'pink', 'mauve', 'red', 'maroon', 'peach', 'yellow', 'green', 'teal', 'sky', 'sapphire', 'blue', 'lavender'] as const;
 	type Theme = (typeof themes)[number];
 	type Accent = (typeof accents)[number];
+	type LedgerExport = {
+		app: 'pulse';
+		version: 1;
+		exportedAt: string;
+		settings: { theme: Theme; accent: Accent };
+		programme: { days: TrainingDay[]; workouts: Record<string, WorkoutExercise[]> };
+	};
 
 	let dayExercises: WorkoutExercise[] = starterWorkout;
 	let activeDayId = 'day-1';
@@ -38,6 +49,7 @@
 	let reorderMode = false;
 	let libraryOpen = false;
 	let appearanceOpen = false;
+	let dataMenuOpen = false;
 	let theme: Theme = 'mocha';
 	let accent: Accent = 'mauve';
 	let expanded = new Set<string>();
@@ -46,6 +58,9 @@
 	let editingDayId: string | null = null;
 	let dayNameDraft = '';
 	let deleteCandidateId: string | null = null;
+	let importInput: HTMLInputElement;
+	let pendingImport: LedgerExport | null = null;
+	let transferMessage = '';
 
 	$: visibleExercises = exerciseLibrary.filter((exercise) => {
 		const query = search.trim().toLowerCase();
@@ -201,6 +216,86 @@
 		}
 		deleteCandidateId = null;
 	}
+
+	function exportLedger() {
+		const payload: LedgerExport = {
+			app: 'pulse',
+			version: 1,
+			exportedAt: new Date().toISOString(),
+			settings: { theme, accent },
+			programme: { days, workouts: savedWorkouts }
+		};
+		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = `pulse-ledger-${new Date().toISOString().slice(0, 10)}.json`;
+		anchor.click();
+		URL.revokeObjectURL(url);
+		transferMessage = 'Exported a complete copy.';
+	}
+
+	async function readImport(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		try {
+			const candidate: unknown = JSON.parse(await file.text());
+			if (!isLedgerExport(candidate)) throw new Error('This is not a valid Pulse ledger file.');
+			pendingImport = candidate;
+			transferMessage = '';
+		} catch (error) {
+			pendingImport = null;
+			transferMessage = error instanceof Error ? error.message : 'Could not read that file.';
+		} finally {
+			input.value = '';
+		}
+	}
+
+	function applyImport() {
+		if (!pendingImport) return;
+		const imported = pendingImport;
+		days = imported.programme.days.map((day) => ({ ...day }));
+		workouts = Object.fromEntries(Object.entries(imported.programme.workouts).map(([id, exercises]) => [id, exercises.map((exercise) => ({ ...exercise }))]));
+		activeDayId = days[0].id;
+		dayExercises = [...workouts[activeDayId]];
+		theme = imported.settings.theme;
+		accent = imported.settings.accent;
+		pendingImport = null;
+		transferMessage = `Imported ${days.length} training ${days.length === 1 ? 'day' : 'days'}.`;
+	}
+
+	function isLedgerExport(value: unknown): value is LedgerExport {
+		if (!isRecord(value) || value.app !== 'pulse' || value.version !== 1 || !isRecord(value.settings) || !isRecord(value.programme)) return false;
+		if (typeof value.settings.theme !== 'string' || !themes.includes(value.settings.theme as Theme)) return false;
+		if (typeof value.settings.accent !== 'string' || !accents.includes(value.settings.accent as Accent)) return false;
+
+		const days = value.programme.days;
+		const workouts = value.programme.workouts;
+		if (!Array.isArray(days) || !days.length || !isRecord(workouts)) return false;
+		if (!days.every((day) => isRecord(day) && typeof day.id === 'string' && day.id.length > 0 && typeof day.name === 'string' && day.name.trim().length > 0)) return false;
+		const ids = days.map((day) => (day as TrainingDay).id);
+		if (new Set(ids).size !== ids.length) return false;
+		return ids.every((id) => Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise));
+	}
+
+	function isWorkoutExercise(value: unknown): value is WorkoutExercise {
+		if (!isRecord(value)) return false;
+		const stringFields = ['id', 'name', 'equipment', 'guideUrl', 'description', 'reps', 'load', 'rest', 'note'];
+		if (!stringFields.every((field) => typeof value[field] === 'string')) return false;
+		if (typeof value.sets !== 'number' || !Number.isFinite(value.sets) || value.sets < 1 || typeof value.completed !== 'boolean') return false;
+		if (!Array.isArray(value.muscles) || !value.muscles.every((muscle) => muscleGroups.includes(muscle as MuscleGroup))) return false;
+		try {
+			const guide = new URL(value.guideUrl as string);
+			return guide.protocol === 'https:' || guide.protocol === 'http:';
+		} catch {
+			return false;
+		}
+	}
+
+	function isRecord(value: unknown): value is Record<string, unknown> {
+		return typeof value === 'object' && value !== null && !Array.isArray(value);
+	}
 </script>
 
 <svelte:head>
@@ -219,7 +314,7 @@
 		<div class="masthead-actions">
 			<p class="save-state"><span></span> Local autosave</p>
 			<div class="appearance-anchor">
-				<button class:active={appearanceOpen} class="appearance-trigger" onclick={() => (appearanceOpen = !appearanceOpen)} aria-expanded={appearanceOpen} aria-controls="appearance-panel" aria-label="Open appearance settings">
+				<button class:active={appearanceOpen} class="appearance-trigger" onclick={() => { appearanceOpen = !appearanceOpen; dataMenuOpen = false; }} aria-expanded={appearanceOpen} aria-controls="appearance-panel" aria-label="Open appearance settings">
 					<Palette size={17} />
 				</button>
 
@@ -249,7 +344,27 @@
 					</section>
 				{/if}
 			</div>
-			<button class="vault-trigger" onclick={() => (libraryOpen = true)}>
+			<div class="data-anchor">
+				<button class:active={dataMenuOpen} class="data-trigger" onclick={() => { dataMenuOpen = !dataMenuOpen; appearanceOpen = false; }} aria-expanded={dataMenuOpen} aria-controls="data-panel" aria-label="Open ledger menu"><Ellipsis size={18} /></button>
+				<input class="hidden-file-input" bind:this={importInput} type="file" accept="application/json,.json" onchange={readImport} />
+
+				{#if dataMenuOpen}
+					<section class="data-panel" id="data-panel" aria-label="Ledger data menu">
+						<header><div><p class="kicker">Portable by default</p><h2>Ledger data</h2></div><FileJson size={20} /></header>
+						<button class="data-action" onclick={exportLedger}><Download size={17} /><span><strong>Export ledger</strong><small>Download a complete JSON copy</small></span></button>
+						<button class="data-action" onclick={() => importInput.click()}><Upload size={17} /><span><strong>Import ledger</strong><small>Restore from a Pulse export</small></span></button>
+
+						{#if pendingImport}
+							<div class="import-confirm">
+								<p>Replace this ledger with <strong>{pendingImport.programme.days.length} {pendingImport.programme.days.length === 1 ? 'day' : 'days'}</strong> from the file?</p>
+								<div><button onclick={() => (pendingImport = null)}>Cancel</button><button class="replace-data" onclick={applyImport}>Replace ledger</button></div>
+							</div>
+						{/if}
+						{#if transferMessage}<p class:transfer-error={transferMessage.includes('not valid') || transferMessage.includes('Could not')} class="transfer-message">{transferMessage}</p>{/if}
+					</section>
+				{/if}
+			</div>
+			<button class="vault-trigger" onclick={() => { libraryOpen = true; appearanceOpen = false; dataMenuOpen = false; }}>
 				<LibraryBig size={16} />
 				Exercise vault
 			</button>
