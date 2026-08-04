@@ -18,3 +18,8 @@ export type WorkoutExercise = Exercise & {
   note: string;
   completed: boolean;
 };
+
+export type TrainingDay = {
+  id: string;
+  name: string;
+};

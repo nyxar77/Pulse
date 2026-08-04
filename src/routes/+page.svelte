@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { exerciseLibrary, starterWorkout } from '$lib/data';
-	import type { Exercise, MuscleGroup, WorkoutExercise } from '$lib/types';
+	import type { Exercise, MuscleGroup, TrainingDay, WorkoutExercise } from '$lib/types';
 	import {
 		Activity,
 		ArrowDown,
@@ -11,24 +11,23 @@
 		ExternalLink,
 		GripVertical,
 		LibraryBig,
+		Pencil,
 		Plus,
+		Save,
 		Search,
 		Trash2,
 		X
 	} from 'lucide-svelte';
 	import { onMount } from 'svelte';
 
-	const storageKey = 'pulse-push-strength-v1';
+	const storageKey = 'pulse-ledger-v2';
+	const legacyStorageKey = 'pulse-push-strength-v1';
 	const muscleGroups: Array<MuscleGroup | 'All'> = ['All', 'Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core'];
 
 	let dayExercises: WorkoutExercise[] = starterWorkout;
-	let activeDay = 'Push · Strength';
-	let days = ['Push · Strength', 'Pull · Hypertrophy', 'Legs · Strength'];
-	let workouts: Record<string, WorkoutExercise[]> = {
-		'Push · Strength': starterWorkout,
-		'Pull · Hypertrophy': [],
-		'Legs · Strength': []
-	};
+	let activeDayId = 'day-1';
+	let days: TrainingDay[] = [{ id: 'day-1', name: 'Day 01' }];
+	let workouts: Record<string, WorkoutExercise[]> = { 'day-1': starterWorkout };
 	let search = '';
 	let selectedMuscle: MuscleGroup | 'All' = 'All';
 	let reorderMode = false;
@@ -36,6 +35,9 @@
 	let expanded = new Set<string>();
 	let hydrated = false;
 	let draggedExerciseId: string | null = null;
+	let editingDayId: string | null = null;
+	let dayNameDraft = '';
+	let deleteCandidateId: string | null = null;
 
 	$: visibleExercises = exerciseLibrary.filter((exercise) => {
 		const query = search.trim().toLowerCase();
@@ -45,32 +47,51 @@
 	});
 
 	$: completedCount = dayExercises.filter((exercise) => exercise.completed).length;
-	$: savedWorkouts = { ...workouts, [activeDay]: dayExercises };
+	$: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? 'Untitled day';
+	$: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
 	$: if (browser && hydrated) {
-		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDay }));
+		localStorage.setItem(storageKey, JSON.stringify({ workouts: savedWorkouts, days, activeDayId }));
 	}
 
 	onMount(() => {
-		const saved = localStorage.getItem(storageKey);
+		const saved = localStorage.getItem(storageKey) ?? localStorage.getItem(legacyStorageKey);
 		if (saved) {
 			try {
 				const parsed = JSON.parse(saved) as Partial<{
 					dayExercises: WorkoutExercise[];
 					workouts: Record<string, WorkoutExercise[]>;
-					days: string[];
+					days: TrainingDay[] | string[];
+					activeDayId: string;
 					activeDay: string;
 				}>;
-				if (parsed.days?.length) days = parsed.days;
-				if (parsed.activeDay) activeDay = parsed.activeDay;
-				if (parsed.workouts) workouts = parsed.workouts;
-				else if (parsed.dayExercises?.length) workouts = { ...workouts, [activeDay]: parsed.dayExercises };
-				dayExercises = [...(workouts[activeDay] ?? [])];
+				if (parsed.days?.length && typeof parsed.days[0] === 'object') {
+					days = parsed.days as TrainingDay[];
+					activeDayId = parsed.activeDayId ?? days[0].id;
+					if (parsed.workouts) workouts = parsed.workouts;
+				} else if (parsed.days?.length) {
+					migrateLegacyProgramme(parsed.days as string[], parsed.workouts ?? {}, parsed.activeDay);
+				} else if (parsed.dayExercises?.length) {
+					workouts = { 'day-1': parsed.dayExercises };
+				}
+				dayExercises = [...(workouts[activeDayId] ?? [])];
 			} catch {
 				localStorage.removeItem(storageKey);
 			}
 		}
 		hydrated = true;
 	});
+
+	function migrateLegacyProgramme(legacyDays: string[], legacyWorkouts: Record<string, WorkoutExercise[]>, legacyActive?: string) {
+		const defaultNames: Record<string, string> = {
+			'Push · Strength': 'Day 01',
+			'Pull · Hypertrophy': 'Day 02',
+			'Legs · Strength': 'Day 03'
+		};
+		days = legacyDays.map((name, index) => ({ id: `day-${index + 1}`, name: defaultNames[name] ?? name }));
+		workouts = Object.fromEntries(days.map((day, index) => [day.id, legacyWorkouts[legacyDays[index]] ?? []]));
+		const activeIndex = Math.max(0, legacyDays.indexOf(legacyActive ?? ''));
+		activeDayId = days[activeIndex]?.id ?? days[0].id;
+	}
 
 	function touch() {
 		dayExercises = [...dayExercises];
@@ -124,18 +145,49 @@
 	}
 
 	function createDay() {
-		const newDay = `New day ${days.length - 2}`;
-		workouts = { ...workouts, [activeDay]: dayExercises, [newDay]: [] };
+		const id = `day-${Date.now()}`;
+		const newDay = { id, name: `Day ${String(days.length + 1).padStart(2, '0')}` };
+		workouts = { ...workouts, [activeDayId]: dayExercises, [id]: [] };
 		days = [...days, newDay];
-		activeDay = newDay;
+		activeDayId = id;
 		dayExercises = [];
+		startRename(newDay);
 	}
 
-	function selectDay(day: string) {
-		if (day === activeDay) return;
-		workouts = { ...workouts, [activeDay]: dayExercises };
-		activeDay = day;
-		dayExercises = [...(workouts[day] ?? [])];
+	function selectDay(dayId: string) {
+		if (dayId === activeDayId) return;
+		workouts = { ...workouts, [activeDayId]: dayExercises };
+		activeDayId = dayId;
+		dayExercises = [...(workouts[dayId] ?? [])];
+		deleteCandidateId = null;
+	}
+
+	function startRename(day: TrainingDay) {
+		editingDayId = day.id;
+		dayNameDraft = day.name;
+		deleteCandidateId = null;
+	}
+
+	function saveDayName() {
+		const name = dayNameDraft.trim();
+		if (!editingDayId || !name) return;
+		days = days.map((day) => (day.id === editingDayId ? { ...day, name } : day));
+		editingDayId = null;
+	}
+
+	function deleteDay(dayId: string) {
+		if (days.length === 1) return;
+		const currentIndex = days.findIndex((day) => day.id === dayId);
+		const nextDays = days.filter((day) => day.id !== dayId);
+		const currentWorkouts = { ...workouts, [activeDayId]: dayExercises };
+		delete currentWorkouts[dayId];
+		workouts = currentWorkouts;
+		days = nextDays;
+		if (dayId === activeDayId) {
+			activeDayId = nextDays[Math.min(currentIndex, nextDays.length - 1)].id;
+			dayExercises = [...(workouts[activeDayId] ?? [])];
+		}
+		deleteCandidateId = null;
 	}
 </script>
 
@@ -168,15 +220,35 @@
 				<strong>01</strong>
 			</div>
 
-			<nav class="day-list">
+			<div class="day-list">
 				{#each days as day, index}
-					<button class:active={day === activeDay} onclick={() => selectDay(day)}>
-						<span>{String(index + 1).padStart(2, '0')}</span>
-						<strong>{day}</strong>
-						<small>{workouts[day]?.length ?? 0} movements</small>
-					</button>
+					<div class:active={day.id === activeDayId} class="day-entry">
+						{#if editingDayId === day.id}
+							<form class="day-name-form" onsubmit={(event) => { event.preventDefault(); saveDayName(); }}>
+								<input bind:value={dayNameDraft} aria-label="Training day name" maxlength="36" />
+								<button type="submit" aria-label="Save day name"><Save size={14} /></button>
+							</form>
+						{:else}
+							<button class="day-select" onclick={() => selectDay(day.id)}>
+								<span>{String(index + 1).padStart(2, '0')}</span>
+								<strong>{day.name}</strong>
+								<small>{day.id === activeDayId ? dayExercises.length : (workouts[day.id]?.length ?? 0)} movements</small>
+							</button>
+							{#if day.id === activeDayId}
+								<div class="day-controls">
+									{#if deleteCandidateId === day.id}
+										<button class="keep-day" onclick={() => (deleteCandidateId = null)}>Keep</button>
+										<button class="confirm-delete" onclick={() => deleteDay(day.id)}>Delete</button>
+									{:else}
+										<button onclick={() => startRename(day)} aria-label={`Rename ${day.name}`}><Pencil size={13} /></button>
+										<button onclick={() => (deleteCandidateId = day.id)} disabled={days.length === 1} aria-label={`Delete ${day.name}`}><Trash2 size={13} /></button>
+									{/if}
+								</div>
+							{/if}
+						{/if}
+					</div>
 				{/each}
-			</nav>
+			</div>
 
 			<button class="new-day" onclick={createDay}><Plus size={15} /> New training day</button>
 		</aside>
@@ -184,8 +256,8 @@
 		<section class="session-page" aria-labelledby="session-title">
 			<header class="session-heading">
 				<div>
-					<p class="kicker">Sequence {String(days.indexOf(activeDay) + 1).padStart(2, '0')}</p>
-					<h1 id="session-title">{activeDay}</h1>
+					<p class="kicker">Sequence {String(Math.max(0, days.findIndex((day) => day.id === activeDayId)) + 1).padStart(2, '0')}</p>
+					<h1 id="session-title">{activeDayName}</h1>
 					<p class="session-summary">
 						<span>{dayExercises.length} movements</span>
 						<span>{completedCount} complete</span>
