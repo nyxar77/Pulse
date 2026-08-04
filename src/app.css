@@ -865,24 +865,47 @@ a {
   color: var(--surface-2);
 }
 
-.reorder-toggle {
+.programme-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reorder-toggle,
+.edit-toggle,
+.add-movement {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 2px;
+  min-height: 38px;
+  padding: 8px 11px;
   color: var(--overlay);
   background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--surface-2);
+  border: 1px solid var(--surface-2);
+  border-radius: 999px;
   font-size: 0.68rem;
   font-weight: 600;
 }
 
 .reorder-toggle:hover,
-.reorder-toggle.active {
+.reorder-toggle.active,
+.add-movement:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.edit-toggle {
+  color: var(--base);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.edit-toggle:hover,
+.edit-toggle.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--base));
 }
 
 .movement-list {
@@ -923,13 +946,9 @@ a {
   cursor: grabbing;
 }
 
-.movement.completed {
-  opacity: 0.48;
-}
-
 .movement-main {
   display: grid;
-  grid-template-columns: 50px 22px minmax(0, 1fr) auto;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
   gap: 13px;
   align-items: center;
 }
@@ -946,44 +965,6 @@ a {
 
 .sequence-number svg {
   color: var(--accent);
-}
-
-.completion-control {
-  position: relative;
-  width: 20px;
-  height: 20px;
-}
-
-.completion-control input {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.completion-control span {
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  color: transparent;
-  border: 1px solid var(--surface-2);
-  border-radius: 50%;
-}
-
-.completion-control input:focus-visible + span {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.completion-control input:checked + span {
-  color: var(--base);
-  background: var(--green);
-  border-color: var(--green);
 }
 
 .movement-name {
@@ -1037,20 +1018,81 @@ a {
   transform: rotate(180deg);
 }
 
-.prescription {
+.prescription-readout {
   display: grid;
-  grid-template-columns: 0.55fr 1fr 1.2fr 0.9fr;
   gap: 8px;
-  margin: 20px 0 0 85px;
+  margin: 24px 0 0 63px;
 }
 
-.prescription label,
+.primary-prescription {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--text);
+}
+
+.primary-prescription strong {
+  font:
+    400 1.75rem/1 "Instrument Serif",
+    serif;
+  letter-spacing: -0.025em;
+}
+
+.primary-prescription span {
+  color: var(--overlay);
+  font:
+    400 0.57rem "Space Mono",
+    monospace;
+  text-transform: uppercase;
+}
+
+.primary-prescription b {
+  margin: 0 4px;
+  color: var(--accent);
+  font:
+    400 0.72rem "Space Mono",
+    monospace;
+}
+
+.prescription-readout > p {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  color: var(--overlay);
+  font:
+    400 0.62rem "Space Mono",
+    monospace;
+  text-transform: uppercase;
+}
+
+.prescription-readout > p strong {
+  color: var(--subtext);
+  font-weight: 700;
+}
+
+.prescription-readout > p span {
+  color: var(--surface-2);
+}
+
+.prescription-editor {
+  display: grid;
+  grid-template-columns: 0.9fr 1.65fr 1fr 0.9fr;
+  gap: 10px;
+  margin: 22px 0 0 63px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--mantle) 64%, transparent);
+  border: 1px solid var(--surface-1);
+}
+
+.prescription-control,
+.text-prescription,
 .movement-note {
   display: grid;
   gap: 7px;
 }
 
-.prescription label > span,
+.control-label,
+.text-prescription > span,
 .movement-note > span {
   color: var(--overlay);
   font:
@@ -1060,7 +1102,96 @@ a {
   text-transform: uppercase;
 }
 
-.prescription input,
+.number-stepper,
+.weight-stepper {
+  min-height: 42px;
+  display: flex;
+  align-items: stretch;
+  background: var(--base);
+  border: 1px solid var(--surface-1);
+}
+
+.number-stepper > button,
+.weight-stepper > button {
+  width: 40px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+}
+
+.number-stepper > button:first-child,
+.weight-stepper > button:first-child {
+  border-right: 1px solid var(--surface-1);
+}
+
+.number-stepper > button:last-child,
+.weight-stepper > button:last-child {
+  border-left: 1px solid var(--surface-1);
+}
+
+.number-stepper > button:hover:not(:disabled),
+.weight-stepper > button:hover:not(:disabled) {
+  color: var(--base);
+  background: var(--accent);
+}
+
+.number-stepper > button:disabled,
+.weight-stepper > button:disabled {
+  color: var(--surface-2);
+}
+
+.number-stepper > strong {
+  min-width: 38px;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  font:
+    700 0.82rem "Space Mono",
+    monospace;
+}
+
+.weight-stepper > label {
+  min-width: 62px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+.weight-stepper input {
+  width: 52px;
+  padding: 0;
+  color: var(--text);
+  text-align: right;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  appearance: textfield;
+  font:
+    700 0.78rem "Space Mono",
+    monospace;
+}
+
+.weight-stepper input::-webkit-inner-spin-button,
+.weight-stepper input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.weight-stepper label > span {
+  color: var(--overlay);
+  font:
+    400 0.55rem "Space Mono",
+    monospace;
+}
+
+.text-prescription input,
 .movement-note input {
   min-width: 0;
   width: 100%;
@@ -1075,7 +1206,7 @@ a {
     monospace;
 }
 
-.prescription input:focus,
+.text-prescription input:focus,
 .movement-note input:focus,
 .vault-search:focus-within {
   border-color: var(--accent);
@@ -1085,7 +1216,7 @@ a {
 .movement-details {
   display: grid;
   gap: 18px;
-  margin: 22px 0 0 85px;
+  margin: 22px 0 0 63px;
   padding: 19px 0 4px;
   border-top: 1px dashed var(--surface-1);
 }
@@ -1138,6 +1269,14 @@ a {
 
 .movement-note {
   flex: 1;
+}
+
+.movement-note-readout {
+  flex: 1;
+  margin: 0;
+  color: var(--subtext);
+  font-size: 0.7rem;
+  line-height: 1.5;
 }
 
 .move-buttons {
@@ -1623,12 +1762,13 @@ a {
   }
 
   .movement-main {
-    grid-template-columns: 42px 22px minmax(0, 1fr) auto;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
   }
 
-  .prescription,
+  .prescription-readout,
+  .prescription-editor,
   .movement-details {
-    margin-left: 77px;
+    margin-left: 55px;
   }
 }
 
@@ -1641,10 +1781,6 @@ a {
   .wordmark-context,
   .save-state {
     display: none;
-  }
-
-  .vault-trigger {
-    padding: 8px 10px;
   }
 
   .masthead-actions {
@@ -1668,9 +1804,14 @@ a {
   }
 
   .programme-index {
-    padding: 20px 14px 0;
+    position: sticky;
+    z-index: 12;
+    top: 62px;
+    padding: 12px 12px 0;
+    background: color-mix(in srgb, var(--base) 94%, transparent);
     border-right: 0;
     border-bottom: 1px solid var(--surface-1);
+    backdrop-filter: blur(14px);
   }
 
   .programme-index::after,
@@ -1691,13 +1832,13 @@ a {
   }
 
   .day-entry {
-    min-width: 155px;
-    min-height: 58px;
+    min-width: 144px;
+    min-height: 60px;
     border: 1px solid var(--surface-1);
   }
 
   .day-select {
-    min-height: 58px;
+    min-height: 60px;
     grid-template-columns: 23px 1fr;
     padding: 9px 11px;
   }
@@ -1716,41 +1857,113 @@ a {
   }
 
   .new-day {
-    margin: 0 0 12px;
+    min-height: 42px;
+    margin: 0 0 8px;
   }
 
   .session-page {
-    padding: 48px 18px 60px;
+    padding: 34px 14px 100px;
   }
 
   .session-heading {
-    margin-bottom: 40px;
+    align-items: start;
+    flex-direction: column;
+    gap: 24px;
+    margin-bottom: 34px;
   }
 
   .session-heading h1 {
-    font-size: clamp(3rem, 16vw, 5rem);
+    font-size: clamp(2.7rem, 13vw, 4rem);
+    line-height: 0.92;
+  }
+
+  .session-summary {
+    margin-top: 17px;
+  }
+
+  .programme-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .programme-actions button {
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .edit-toggle {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .movement-list {
+    display: grid;
+    gap: 10px;
+    border-top: 0;
+  }
+
+  .movement {
+    padding: 18px 13px 17px;
+    background: color-mix(in srgb, var(--mantle) 72%, transparent);
+    border: 1px solid var(--surface-1);
   }
 
   .movement::before {
-    left: -8px;
+    display: none;
   }
 
   .movement-main {
-    grid-template-columns: 31px 21px minmax(0, 1fr) auto;
-    gap: 9px;
+    grid-template-columns: 29px minmax(0, 1fr) 40px;
+    gap: 8px;
+  }
+
+  .movement-name h2 {
+    overflow: visible;
+    font-size: 0.96rem;
+    line-height: 1.25;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .details-toggle {
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+    padding: 0;
   }
 
   .details-toggle span {
     display: none;
   }
 
-  .prescription {
-    grid-template-columns: 0.7fr 1.3fr;
-    margin-left: 61px;
+  .prescription-readout {
+    margin: 20px 0 0 37px;
+  }
+
+  .primary-prescription strong {
+    font-size: 1.65rem;
+  }
+
+  .prescription-editor {
+    grid-template-columns: 1fr;
+    margin: 17px 0 0;
+    padding: 12px;
+  }
+
+  .number-stepper,
+  .weight-stepper {
+    min-height: 46px;
+  }
+
+  .number-stepper > button,
+  .weight-stepper > button {
+    width: 46px;
   }
 
   .movement-details {
-    margin-left: 61px;
+    margin: 18px 0 0 37px;
   }
 
   .details-toolbar {
@@ -1762,6 +1975,12 @@ a {
     flex-basis: 100%;
     order: -1;
   }
+
+  .move-buttons button,
+  .delete-movement {
+    width: 42px;
+    height: 42px;
+  }
 }
 
 @media (max-width: 440px) {
@@ -1769,21 +1988,6 @@ a {
     width: 31px;
     height: 31px;
     margin-right: 9px;
-  }
-
-  .vault-trigger {
-    font-size: 0;
-  }
-
-  .vault-trigger svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .session-heading {
-    align-items: start;
-    flex-direction: column;
-    gap: 19px;
   }
 
   .session-summary {

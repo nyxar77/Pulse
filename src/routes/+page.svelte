@@ -19,6 +19,7 @@
 	import FileJson from 'lucide-svelte/icons/file-json';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import LibraryBig from 'lucide-svelte/icons/library-big';
+	import Minus from 'lucide-svelte/icons/minus';
 	import Palette from 'lucide-svelte/icons/palette';
 	import Pencil from 'lucide-svelte/icons/pencil';
 	import Plus from 'lucide-svelte/icons/plus';
@@ -61,6 +62,7 @@
 	let savedExercises: Exercise[] = exerciseLibrary.map((exercise) => ({ ...exercise }));
 	let search = '';
 	let selectedMuscle = 'All';
+	let editMode = false;
 	let showArchived = false;
 	let exerciseEditorOpen = false;
 	let editingExerciseId: string | null = null;
@@ -95,7 +97,6 @@
 		return matchesSearch && matchesMuscle && Boolean(exercise.archived) === showArchived;
 	});
 
-	$: completedCount = dayExercises.filter((exercise) => exercise.completed).length;
 	$: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? 'Untitled day';
 	$: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
 	$: if (browser && hydrated) {
@@ -262,6 +263,57 @@
 
 	function touch() {
 		dayExercises = [...dayExercises];
+	}
+
+	function toggleEditMode() {
+		editMode = !editMode;
+		if (!editMode) {
+			reorderMode = false;
+			deleteCandidateId = null;
+		}
+	}
+
+	function adjustSets(exercise: WorkoutExercise, delta: number) {
+		exercise.sets = Math.min(20, Math.max(1, Math.round(exercise.sets + delta)));
+		touch();
+	}
+
+	function parseWeight(load: string): number | null {
+		const value = Number.parseFloat(load.replace(',', '.'));
+		return Number.isFinite(value) && value > 0 ? value : null;
+	}
+
+	function formatWeight(value: number): string {
+		return Number.isInteger(value) ? String(value) : value.toFixed(1);
+	}
+
+	function weightInputValue(load: string): string {
+		const value = parseWeight(load);
+		return value === null ? '' : formatWeight(value);
+	}
+
+	function weightLabel(load: string): string {
+		const value = parseWeight(load);
+		return value === null ? 'No load' : formatWeight(value);
+	}
+
+	function adjustWeight(exercise: WorkoutExercise, delta: number) {
+		const current = parseWeight(exercise.load) ?? 0;
+		const next = Math.max(0, Math.round((current + delta) * 2) / 2);
+		exercise.load = next === 0 ? '—' : formatWeight(next);
+		touch();
+	}
+
+	function updateWeightInput(exercise: WorkoutExercise, event: Event) {
+		exercise.load = (event.currentTarget as HTMLInputElement).value;
+		touch();
+	}
+
+	function settleWeight(exercise: WorkoutExercise) {
+		const value = parseWeight(exercise.load);
+		if (value === null) exercise.load = '—';
+		else exercise.load = formatWeight(Math.round(value * 2) / 2);
+		touch();
 	}
 
 	function addExercise(exercise: Exercise) {
@@ -531,10 +583,6 @@
 					</section>
 				{/if}
 			</div>
-			<button class="vault-trigger" onclick={() => { libraryOpen = true; appearanceOpen = false; dataMenuOpen = false; }}>
-				<LibraryBig size={16} />
-				Exercise vault
-			</button>
 		</div>
 	</header>
 
@@ -559,7 +607,7 @@
 								<strong>{day.name}</strong>
 								<small>{day.id === activeDayId ? dayExercises.length : (workouts[day.id]?.length ?? 0)} movements</small>
 							</button>
-							{#if day.id === activeDayId}
+							{#if editMode && day.id === activeDayId}
 								<div class="day-controls">
 									{#if deleteCandidateId === day.id}
 										<button class="keep-day" onclick={() => (deleteCandidateId = null)}>Keep</button>
@@ -575,7 +623,7 @@
 				{/each}
 			</div>
 
-			<button class="new-day" onclick={createDay}><Plus size={15} /> New training day</button>
+			{#if editMode}<button class="new-day" onclick={createDay}><Plus size={15} /> New training day</button>{/if}
 		</aside>
 
 		<section class="session-page" aria-labelledby="session-title">
@@ -585,20 +633,22 @@
 					<h1 id="session-title">{activeDayName}</h1>
 					<p class="session-summary">
 						<span>{dayExercises.length} movements</span>
-						<span>{completedCount} complete</span>
+						<span>{editMode ? 'Editing programme' : 'Programme view'}</span>
 					</p>
 				</div>
-				<button class:active={reorderMode} class="reorder-toggle" onclick={() => (reorderMode = !reorderMode)} aria-pressed={reorderMode}>
-					<GripVertical size={16} />
-					{reorderMode ? 'Finish order' : 'Set order'}
-				</button>
+				<div class="programme-actions">
+					{#if editMode}
+						<button class="add-movement" onclick={() => (libraryOpen = true)}><LibraryBig size={16} /> Add exercise</button>
+						<button class:active={reorderMode} class="reorder-toggle" onclick={() => (reorderMode = !reorderMode)} aria-pressed={reorderMode}><GripVertical size={16} /> {reorderMode ? 'Finish order' : 'Set order'}</button>
+					{/if}
+					<button class:active={editMode} class="edit-toggle" onclick={toggleEditMode}><Pencil size={16} /> {editMode ? 'Done editing' : 'Edit programme'}</button>
+				</div>
 			</header>
 
 			{#if dayExercises.length}
 				<div class="movement-list">
 					{#each dayExercises as exercise, index (exercise.id)}
 						<article
-							class:completed={exercise.completed}
 							class:reordering={reorderMode}
 							class="movement"
 							draggable={reorderMode}
@@ -612,11 +662,6 @@
 									<span>{String(index + 1).padStart(2, '0')}</span>
 								</div>
 
-								<label class="completion-control">
-									<input type="checkbox" bind:checked={exercise.completed} oninput={touch} aria-label={`Mark ${exercise.name} complete`} />
-									<span><Check size={13} strokeWidth={3} /></span>
-								</label>
-
 								<div class="movement-name">
 									<h2>{exercise.name}</h2>
 									<p>{exercise.muscles.join(' / ')} <span>—</span> {exercise.equipment}</p>
@@ -628,12 +673,19 @@
 								</button>
 							</div>
 
-							<div class="prescription">
-								<label><span>Sets</span><input type="number" min="1" max="20" bind:value={exercise.sets} oninput={touch} /></label>
-								<label><span>Rep range</span><input bind:value={exercise.reps} oninput={touch} /></label>
-								<label><span>Working load</span><input bind:value={exercise.load} oninput={touch} /></label>
-								<label><span>Rest</span><input bind:value={exercise.rest} oninput={touch} /></label>
-							</div>
+							{#if editMode}
+								<div class="prescription-editor">
+									<div class="prescription-control sets-control"><span class="control-label">Sets</span><div class="number-stepper"><button onclick={() => adjustSets(exercise, -1)} disabled={exercise.sets <= 1} aria-label={`Decrease sets for ${exercise.name}`}><Minus size={16} /></button><strong>{exercise.sets}</strong><button onclick={() => adjustSets(exercise, 1)} disabled={exercise.sets >= 20} aria-label={`Increase sets for ${exercise.name}`}><Plus size={16} /></button></div></div>
+									<div class="prescription-control weight-control"><span class="control-label">Weight · ±2.5 kg</span><div class="weight-stepper"><button onclick={() => adjustWeight(exercise, -2.5)} disabled={parseWeight(exercise.load) === null} aria-label={`Decrease weight for ${exercise.name} by 2.5 kilograms`}><Minus size={16} /></button><label><input type="number" min="0" step="0.5" inputmode="decimal" value={weightInputValue(exercise.load)} placeholder="0" oninput={(event) => updateWeightInput(exercise, event)} onblur={() => settleWeight(exercise)} aria-label={`Weight for ${exercise.name} in kilograms`} /><span>kg</span></label><button onclick={() => adjustWeight(exercise, 2.5)} aria-label={`Increase weight for ${exercise.name} by 2.5 kilograms`}><Plus size={16} /></button></div></div>
+									<label class="text-prescription"><span>Rep range</span><input bind:value={exercise.reps} oninput={touch} placeholder="8–12" /></label>
+									<label class="text-prescription"><span>Rest</span><input bind:value={exercise.rest} oninput={touch} placeholder="90 sec" /></label>
+								</div>
+							{:else}
+								<div class="prescription-readout">
+									<div class="primary-prescription"><strong>{exercise.sets}</strong><span>sets</span><b>×</b><strong>{weightLabel(exercise.load)}</strong>{#if parseWeight(exercise.load) !== null}<span>kg</span>{/if}</div>
+									<p><strong>{exercise.reps || 'Open'}</strong> reps{#if exercise.rest && exercise.rest !== '—'}<span>·</span>{exercise.rest} rest{/if}</p>
+								</div>
+							{/if}
 
 							{#if expanded.has(exercise.id)}
 								<div class="movement-details" id={`${exercise.id}-details`}>
@@ -643,14 +695,14 @@
 									{#if exercise.description}<p>{exercise.description}</p>{/if}
 									<div class="details-toolbar">
 										{#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open form reference</a>{/if}
-										<label class="movement-note"><span>Private cue</span><input placeholder="What should you remember?" bind:value={exercise.note} oninput={touch} /></label>
+										{#if editMode}<label class="movement-note"><span>Private cue</span><input placeholder="What should you remember?" bind:value={exercise.note} oninput={touch} /></label>{:else if exercise.note}<p class="movement-note-readout">{exercise.note}</p>{/if}
 										{#if reorderMode}
 											<div class="move-buttons">
 												<button onclick={() => moveExercise(index, -1)} disabled={index === 0} aria-label={`Move ${exercise.name} up`}><ArrowUp size={15} /></button>
 												<button onclick={() => moveExercise(index, 1)} disabled={index === dayExercises.length - 1} aria-label={`Move ${exercise.name} down`}><ArrowDown size={15} /></button>
 											</div>
 										{/if}
-										<button class="delete-movement" onclick={() => removeExercise(exercise.id)} aria-label={`Remove ${exercise.name}`}><Trash2 size={15} /></button>
+										{#if editMode}<button class="delete-movement" onclick={() => removeExercise(exercise.id)} aria-label={`Remove ${exercise.name}`}><Trash2 size={15} /></button>{/if}
 									</div>
 								</div>
 							{/if}
@@ -661,7 +713,7 @@
 				<div class="blank-session">
 					<p>Nothing prescribed.</p>
 					<span>This day is yours to define.</span>
-					<button onclick={() => (libraryOpen = true)}><Plus size={15} /> Add the first movement</button>
+					<button onclick={() => { if (editMode) libraryOpen = true; else toggleEditMode(); }}><Plus size={15} /> {editMode ? 'Add the first movement' : 'Edit this day'}</button>
 				</div>
 			{/if}
 		</section>
