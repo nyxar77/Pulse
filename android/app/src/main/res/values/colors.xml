@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#CBA6F7</color>
+    <color name="colorPrimaryDark">#11111B</color>
+    <color name="colorAccent">#CBA6F7</color>
+    <color name="pulseBackground">#11111B</color>
+</resources>
