@@ -1,8 +1,9 @@
 {
   "name": "pulse-workout-planner",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
+  "license": "GPL-3.0-only",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
@@ -10,7 +11,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "verify": "bun run check && bun test && bun run build",
+    "release:check": "bun scripts/check-release.ts",
+    "verify": "bun run release:check && bun run check && bun test && bun run build",
     "mobile:sync": "bun run build && cap sync android",
     "mobile:run": "bun run mobile:sync && cap run android",
     "android:apk": "bun run mobile:sync && cd android && ./gradlew assembleDebug",
@@ -18,7 +20,6 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.0",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.37.0",

@@ -1,0 +1,9 @@
+Pulse is a private, offline workout planner built around your training rules.
+
+Create custom workouts and assign them to any of the seven weekdays. Pulse uses your device's local date to show the correct workout for today, with a clear checklist for the exercises you complete.
+
+Build a reusable exercise library with custom muscle groups, equipment, tags, notes, images, and guide links. Add exercises to a workout, set their sets, reps, weight, and rest targets, then drag them into the order you want.
+
+Your programme stays on your device. There are no accounts, ads, analytics, or trackers. Export the complete ledger as JSON whenever you want a portable backup, and import it again on another device.
+
+Pulse also includes all four Catppuccin flavours and their accent colours.
