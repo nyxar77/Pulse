@@ -82,6 +82,8 @@
 	let importInput: HTMLInputElement;
 	let pendingImport: LedgerExport | null = null;
 	let transferMessage = '';
+	let appearanceAnchor: HTMLDivElement | undefined;
+	let dataAnchor: HTMLDivElement | undefined;
 
 	$: availableGroups = ['All', ...new Set([...suggestedGroups, ...savedExercises.flatMap((exercise) => [...exercise.muscles, ...(exercise.tags ?? [])])])];
 	$: archivedCount = savedExercises.filter((exercise) => exercise.archived).length;
@@ -442,7 +444,26 @@
 	function isRecord(value: unknown): value is Record<string, unknown> {
 		return typeof value === 'object' && value !== null && !Array.isArray(value);
 	}
+
+	function handleOutsidePointer(event: PointerEvent) {
+		if (!(event.target instanceof Node)) return;
+		if (appearanceOpen && appearanceAnchor && !appearanceAnchor.contains(event.target)) appearanceOpen = false;
+		if (dataMenuOpen && dataAnchor && !dataAnchor.contains(event.target)) dataMenuOpen = false;
+	}
+
+	function handlePopoverKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		if (appearanceOpen) {
+			appearanceOpen = false;
+			appearanceAnchor?.querySelector<HTMLElement>('.appearance-trigger')?.focus();
+		} else if (dataMenuOpen) {
+			dataMenuOpen = false;
+			dataAnchor?.querySelector<HTMLElement>('.data-trigger')?.focus();
+		}
+	}
 </script>
+
+<svelte:window onpointerdown={handleOutsidePointer} onkeydown={handlePopoverKeydown} />
 
 <svelte:head>
 	<title>Pulse — Training ledger</title>
@@ -459,8 +480,8 @@
 
 		<div class="masthead-actions">
 			<p class="save-state"><span></span> Local autosave</p>
-			<div class="appearance-anchor">
-				<button class:active={appearanceOpen} class="appearance-trigger" onclick={() => { appearanceOpen = !appearanceOpen; dataMenuOpen = false; }} aria-expanded={appearanceOpen} aria-controls="appearance-panel" aria-label="Open appearance settings">
+			<div class="appearance-anchor" bind:this={appearanceAnchor}>
+				<button class:active={appearanceOpen} class="appearance-trigger" onclick={() => { appearanceOpen = !appearanceOpen; dataMenuOpen = false; }} aria-expanded={appearanceOpen} aria-controls="appearance-panel" aria-haspopup="dialog" aria-label="Open appearance settings">
 					<Palette size={17} />
 				</button>
 
@@ -490,8 +511,8 @@
 					</section>
 				{/if}
 			</div>
-			<div class="data-anchor">
-				<button class:active={dataMenuOpen} class="data-trigger" onclick={() => { dataMenuOpen = !dataMenuOpen; appearanceOpen = false; }} aria-expanded={dataMenuOpen} aria-controls="data-panel" aria-label="Open ledger menu"><Ellipsis size={18} /></button>
+			<div class="data-anchor" bind:this={dataAnchor}>
+				<button class:active={dataMenuOpen} class="data-trigger" onclick={() => { dataMenuOpen = !dataMenuOpen; appearanceOpen = false; }} aria-expanded={dataMenuOpen} aria-controls="data-panel" aria-haspopup="menu" aria-label="Open ledger menu"><Ellipsis size={18} /></button>
 				<input class="hidden-file-input" bind:this={importInput} type="file" accept="application/json,.json" onchange={readImport} />
 
 				{#if dataMenuOpen}
