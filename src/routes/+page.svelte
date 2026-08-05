@@ -44,7 +44,6 @@
   import Copy from "lucide-svelte/icons/copy";
   import Download from "lucide-svelte/icons/download";
   import Dumbbell from "lucide-svelte/icons/dumbbell";
-  import EllipsisVertical from "lucide-svelte/icons/ellipsis-vertical";
   import ExternalLink from "lucide-svelte/icons/external-link";
   import FileJson from "lucide-svelte/icons/file-json";
   import GripVertical from "lucide-svelte/icons/grip-vertical";
@@ -73,6 +72,7 @@
     imageUrl: string;
   };
   type AppView = "today" | "programme" | "settings";
+  type LibraryMode = "manage" | "pick";
   type ViewTransitionDocument = Document & {
     startViewTransition?: (update: () => void | Promise<void>) => void;
   };
@@ -102,9 +102,9 @@
   let exerciseDraft: ExerciseDraft = blankExerciseDraft();
   let exerciseFormError = "";
   let deleteExerciseCandidateId: string | null = null;
-  let exerciseActionsId: string | null = null;
   let reorderMode = false;
   let libraryOpen = false;
+  let libraryMode: LibraryMode = "manage";
   let theme: Theme = "mocha";
   let accent: Accent = "mauve";
   let expanded = new Set<string>();
@@ -140,7 +140,8 @@
     const matchesMuscle = selectedMuscle === "All" || exercise.muscles.includes(selectedMuscle) || exercise.tags?.includes(selectedMuscle);
     return matchesSearch && matchesMuscle && Boolean(exercise.archived) === showArchived;
   });
-  $: vaultAddVisible = !exerciseEditorOpen && !vaultFiltersOpen && !showArchived && !exerciseActionsId && !libraryClosing;
+  $: editingExercise = editingExerciseId ? savedExercises.find((exercise) => exercise.id === editingExerciseId) : undefined;
+  $: vaultAddVisible = libraryMode === "manage" && !exerciseEditorOpen && !vaultFiltersOpen && !libraryClosing;
   $: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? "Untitled day";
   $: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
   $: todayIndex = currentDate ? weekIndex(currentDate) : 0;
@@ -153,6 +154,7 @@
   $: orderedTodayExercises = orderExercisesByCompletion(todayExercises, todayCompletionOrder);
   $: completedTodayCount = todayExercises.filter((exercise) => todayCompleted.has(exercise.id)).length;
   $: if (browser) void applyNativeTheme(theme);
+  $: if (browser) void applyBrandFavicon(theme, accent);
   $: if (browser && hydrated) {
     saveLedgerData({
       workouts: savedWorkouts,
@@ -192,7 +194,6 @@
     void import("@capacitor/app").then(async ({ App }) => {
       const listener = await App.addListener("backButton", () => {
         if (exerciseEditorOpen) exerciseEditorOpen = false;
-        else if (exerciseActionsId) exerciseActionsId = null;
         else if (vaultFiltersOpen) vaultFiltersOpen = false;
         else if (libraryOpen) closeLibrary(false);
         else if (editMode) toggleEditMode();
@@ -226,7 +227,10 @@
         const sourceDays = parsed.days?.length
           ? typeof parsed.days[0] === "object"
             ? (parsed.days as TrainingDay[])
-            : (parsed.days as string[]).map((name, index) => ({ id: `legacy-${index}`, name }))
+            : (parsed.days as string[]).map((name, index) => ({
+                id: `legacy-${index}`,
+                name,
+              }))
           : [{ id: "legacy-0", name: "Workout" }];
         const sourceWorkouts =
           parsed.days?.length && typeof parsed.days[0] === "string"
@@ -288,7 +292,6 @@
     exerciseFormError = "";
     exerciseEditorOpen = true;
     deleteExerciseCandidateId = null;
-    exerciseActionsId = null;
   }
 
   function openExerciseEditor(exercise: Exercise) {
@@ -305,7 +308,6 @@
     exerciseFormError = "";
     exerciseEditorOpen = true;
     deleteExerciseCandidateId = null;
-    exerciseActionsId = null;
   }
 
   function duplicateExercise(exercise: Exercise) {
@@ -343,7 +345,7 @@
       description: exerciseDraft.description.trim(),
       guideUrl,
       imageUrl: imageUrl || undefined,
-      custom: true,
+      custom: existing ? Boolean(existing.custom) : true,
       archived: existing?.archived ?? false,
     };
 
@@ -356,7 +358,7 @@
     exerciseEditorOpen = false;
     editingExerciseId = null;
     exerciseFormError = "";
-    showArchived = false;
+    if (!existing) showArchived = false;
   }
 
   function updateExerciseReferences(updated: Exercise) {
@@ -380,13 +382,15 @@
   function toggleExerciseArchive(exercise: Exercise) {
     savedExercises = savedExercises.map((item) => (item.id === exercise.id ? { ...item, archived: !item.archived } : item));
     deleteExerciseCandidateId = null;
-    exerciseActionsId = null;
+    exerciseEditorOpen = false;
+    editingExerciseId = null;
   }
 
   function deleteExerciseDefinition(id: string) {
     savedExercises = savedExercises.filter((exercise) => exercise.id !== id);
     deleteExerciseCandidateId = null;
-    exerciseActionsId = null;
+    exerciseEditorOpen = false;
+    editingExerciseId = null;
   }
 
   function parseLabels(value: string): string[] {
@@ -432,7 +436,6 @@
   }
 
   function addExercise(exercise: Exercise) {
-    exerciseActionsId = null;
     if (dayExercises.some((item) => item.id === exercise.id)) return;
     dayExercises = [
       ...dayExercises,
@@ -520,7 +523,29 @@
 
   function dateLabel(date: Date | null): string {
     if (!date) return "";
-    return new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(date);
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    }).format(date);
+  }
+
+  async function applyBrandFavicon(selectedTheme: Theme, selectedAccent: Accent) {
+    await tick();
+    const appRoot = document.querySelector<HTMLElement>(".app");
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!appRoot || !favicon) return;
+
+    const styles = getComputedStyle(appRoot);
+    const accentColour = styles.getPropertyValue(`--${selectedAccent}`).trim();
+    const backgroundColour = styles.getPropertyValue("--mantle").trim();
+    const strokeColour = styles.getPropertyValue("--base").trim();
+    if (![accentColour, backgroundColour, strokeColour].every((colour) => CSS.supports("color", colour))) return;
+
+    const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${backgroundColour}"/><circle cx="32" cy="32" r="23" fill="${accentColour}"/><path d="M14 33h10l4-13 8 25 5-16 3 4h6" fill="none" stroke="${strokeColour}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    favicon.href = `data:image/svg+xml,${encodeURIComponent(icon)}`;
+    favicon.dataset.theme = selectedTheme;
+    favicon.dataset.accent = selectedAccent;
   }
 
   function weekDateNumber(index: number): string {
@@ -609,10 +634,18 @@
     transferMessage = "Imported your weekly programme.";
   }
 
-  async function openLibrary() {
+  async function openLibrary(mode: LibraryMode) {
     if (libraryOpen) return;
     libraryReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    libraryMode = mode;
+    search = "";
+    selectedMuscle = "All";
+    showArchived = false;
     libraryClosing = false;
+    exerciseEditorOpen = false;
+    editingExerciseId = null;
+    deleteExerciseCandidateId = null;
+    vaultFiltersOpen = false;
     resetVaultDrag();
     libraryOpen = true;
     await tick();
@@ -632,7 +665,7 @@
     libraryClosing = false;
     resetVaultDrag();
     exerciseEditorOpen = false;
-    exerciseActionsId = null;
+    editingExerciseId = null;
     deleteExerciseCandidateId = null;
     vaultFiltersOpen = false;
     if (!returnFocus) {
@@ -781,8 +814,6 @@
     if (event.key !== "Escape") return;
     if (exerciseEditorOpen) {
       exerciseEditorOpen = false;
-    } else if (exerciseActionsId) {
-      exerciseActionsId = null;
     } else if (vaultFiltersOpen) {
       vaultFiltersOpen = false;
     } else if (libraryOpen) {
@@ -793,10 +824,6 @@
   function handleGlobalPointerDown(event: PointerEvent) {
     if (!(event.target instanceof Element)) return;
     if (vaultFiltersOpen && !event.target.closest(".vault-filter-button, .vault-filter-panel")) vaultFiltersOpen = false;
-    if (exerciseActionsId && !event.target.closest(".vault-more, .vault-item-menu")) {
-      exerciseActionsId = null;
-      deleteExerciseCandidateId = null;
-    }
   }
 </script>
 
@@ -827,20 +854,25 @@
 
   <nav class="app-navigation" aria-label="Main navigation" inert={libraryOpen}>
     <button class:active={activeView === "today"} onclick={() => showView("today")} aria-current={activeView === "today" ? "page" : undefined}>
-      <CalendarDays size={21} />
-      <span>Today</span>
+      <span class="nav-indicator"><CalendarDays size={21} /></span>
+      <span class="nav-label">Today</span>
     </button>
     <button class:active={activeView === "programme"} onclick={() => openProgramme(activeDayId)} aria-current={activeView === "programme" ? "page" : undefined}>
-      <Dumbbell size={21} />
-      <span>Programme</span>
+      <span class="nav-indicator"><Dumbbell size={21} /></span>
+      <span class="nav-label">Programme</span>
     </button>
-    <button class:active={libraryOpen} onclick={() => openLibrary()} aria-expanded={libraryOpen} aria-haspopup="dialog">
-      <LibraryBig size={21} />
-      <span>Exercises</span>
+    <button
+      class:active={libraryOpen && libraryMode === "manage"}
+      onclick={() => openLibrary("manage")}
+      aria-expanded={libraryOpen && libraryMode === "manage"}
+      aria-haspopup="dialog"
+    >
+      <span class="nav-indicator"><LibraryBig size={21} /></span>
+      <span class="nav-label">Exercises</span>
     </button>
     <button class:active={activeView === "settings"} onclick={() => showView("settings")} aria-current={activeView === "settings" ? "page" : undefined}>
-      <Settings size={21} />
-      <span>Settings</span>
+      <span class="nav-indicator"><Settings size={21} /></span>
+      <span class="nav-label">Settings</span>
     </button>
   </nav>
 
@@ -852,10 +884,7 @@
             <p>{dateLabel(currentDate)}</p>
             <h1 id="today-title">Today</h1>
           </div>
-          {#if todayPlan}
-            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <md-text-button onclick={() => openProgramme(todayPlan.id)}>Edit plan</md-text-button>
-          {/if}
+          <span class="screen-brand" aria-hidden="true"><Activity size={22} strokeWidth={2.4} /></span>
         </header>
 
         <div class="week-strip" aria-label="This week's schedule">
@@ -880,13 +909,18 @@
             <div>
               <span>Scheduled workout</span>
               <h2>{todayPlan.name}</h2>
-              <p>{todayExercises.length} {todayExercises.length === 1 ? "exercise" : "exercises"}</p>
+              <p>
+                {todayExercises.length}
+                {todayExercises.length === 1 ? "exercise" : "exercises"}
+              </p>
             </div>
             <div class="progress-count" aria-label={`${completedTodayCount} of ${todayExercises.length} exercises done`}>
               <strong>{completedTodayCount}<small>/{todayExercises.length}</small></strong>
               <span>done</span>
             </div>
-            <div class="progress-track"><span style={`width: ${todayExercises.length ? (completedTodayCount / todayExercises.length) * 100 : 0}%`}></span></div>
+            <div class="progress-track">
+              <span style={`width: ${todayExercises.length ? (completedTodayCount / todayExercises.length) * 100 : 0}%`}></span>
+            </div>
           </section>
 
           {#if todayExercises.length}
@@ -909,7 +943,9 @@
                     </button>
                     <div class="exercise-copy">
                       <h3>{exercise.name}</h3>
-                      <p>{exercise.muscles.join(" · ")} · {exercise.equipment}</p>
+                      <p>
+                        {exercise.muscles.join(" · ")} · {exercise.equipment}
+                      </p>
                     </div>
                     <div class="exercise-dose">
                       <strong
@@ -932,8 +968,12 @@
                   {#if expanded.has(exercise.id)}
                     <div class="exercise-details">
                       {#if exercise.imageUrl}<img src={exercise.imageUrl} alt={`Reference for ${exercise.name}`} loading="lazy" />{/if}
-                      {#if exercise.description}<p>{exercise.description}</p>{/if}
-                      {#if exercise.note}<p class="exercise-cue">{exercise.note}</p>{/if}
+                      {#if exercise.description}<p>
+                          {exercise.description}
+                        </p>{/if}
+                      {#if exercise.note}<p class="exercise-cue">
+                          {exercise.note}
+                        </p>{/if}
                       {#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Open form guide</a>{/if}
                     </div>
                   {/if}
@@ -971,6 +1011,7 @@
             <p>Seven days, your rules</p>
             <h1 id="programme-title">Programme</h1>
           </div>
+          <span class="screen-brand" aria-hidden="true"><Activity size={22} strokeWidth={2.4} /></span>
         </header>
         <div class="programme-layout">
           <aside class="week-schedule" aria-labelledby="week-heading">
@@ -1020,12 +1061,15 @@
               <header class="session-heading">
                 <div class="plan-title">
                   <h2 id="session-title">{activeDayName}</h2>
-                  <p>{dayExercises.length} {dayExercises.length === 1 ? "exercise" : "exercises"}</p>
+                  <p>
+                    {dayExercises.length}
+                    {dayExercises.length === 1 ? "exercise" : "exercises"}
+                  </p>
                 </div>
                 <div class="programme-actions">
                   {#if editMode}
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                    <md-filled-tonal-button bind:this={addMovementButton} class="add-movement" onclick={openLibrary}
+                    <md-filled-tonal-button bind:this={addMovementButton} class="add-movement" onclick={() => openLibrary("pick")}
                       ><span slot="icon"><LibraryBig size={18} /></span>Add exercise</md-filled-tonal-button
                     >
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -1167,7 +1211,9 @@
                               <img src={exercise.imageUrl} alt={`Reference for ${exercise.name}`} loading="lazy" />
                             </figure>
                           {/if}
-                          {#if exercise.description}<p>{exercise.description}</p>{/if}
+                          {#if exercise.description}<p>
+                              {exercise.description}
+                            </p>{/if}
                           <div class="details-toolbar">
                             {#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"
                                 ><ExternalLink size={14} /> Open form reference</a
@@ -1192,7 +1238,7 @@
                   <span>This day is yours to define.</span>
                   <button
                     onclick={() => {
-                      if (editMode) void openLibrary();
+                      if (editMode) void openLibrary("pick");
                       else toggleEditMode();
                     }}
                     ><Plus size={15} />
@@ -1211,6 +1257,7 @@
             <p>Local and personal</p>
             <h1 id="settings-title">Settings</h1>
           </div>
+          <span class="screen-brand" aria-hidden="true"><Activity size={22} strokeWidth={2.4} /></span>
         </header>
 
         <div class="settings-groups">
@@ -1270,7 +1317,9 @@
             {#if pendingImport}
               <div class="import-confirm">
                 <p>Replace the data on this device with the selected backup?</p>
-                <div><button onclick={() => (pendingImport = null)}>Cancel</button><button class="replace-data" onclick={applyImport}>Replace</button></div>
+                <div>
+                  <button onclick={() => (pendingImport = null)}>Cancel</button><button class="replace-data" onclick={applyImport}>Replace</button>
+                </div>
               </div>
             {/if}
             {#if transferMessage}<p
@@ -1281,6 +1330,13 @@
               </p>{/if}
           </section>
         </div>
+        <footer class="settings-footer">
+          <a href="https://github.com/nyxar77/Pulse" target="_blank" rel="noreferrer">
+            <Activity size={17} strokeWidth={2.4} />
+            <span>Pulse on GitHub</span>
+            <ExternalLink size={14} />
+          </a>
+        </footer>
       </section>
     {/if}
   </main>
@@ -1316,16 +1372,18 @@
       >
       <header class="vault-heading">
         <div class="vault-title">
-          <h2 id="vault-title">Exercise library</h2>
+          <h2 id="vault-title">
+            {libraryMode === "manage" ? "Exercise library" : "Add exercises"}
+          </h2>
           <p aria-live="polite">
             {visibleExercises.length}
-            {showArchived ? "archived" : "available"}
+            {showArchived ? "archived" : libraryMode === "manage" ? "available" : "to choose from"}
           </p>
         </div>
         <div class="vault-heading-actions">
-          <button class="create-exercise" onclick={openExerciseCreator}><Plus size={15} /><span>New exercise</span></button>
-          <button bind:this={vaultCloseButton} class="icon-button" onclick={() => closeLibrary()} aria-label="Close exercise library" title="Close"
-            ><X size={18} /></button
+          {#if libraryMode === "manage"}<button class="create-exercise" onclick={openExerciseCreator}><Plus size={15} /><span>New exercise</span></button>{/if}
+          <button bind:this={vaultCloseButton} class="icon-button close-button" onclick={() => closeLibrary()} aria-label="Close exercise library" title="Close"
+            ><X size={18} strokeWidth={2.4} /></button
           >
         </div>
       </header>
@@ -1347,7 +1405,9 @@
                 {editingExerciseId ? "Refine exercise" : "Save an exercise"}
               </h3>
             </div>
-            <button type="button" class="icon-button" onclick={() => (exerciseEditorOpen = false)} aria-label="Close exercise editor"><X size={16} /></button>
+            <button type="button" class="icon-button close-button" onclick={() => (exerciseEditorOpen = false)} aria-label="Close exercise editor" title="Close"
+              ><X size={18} strokeWidth={2.4} /></button
+            >
           </header>
           <div class="exercise-form-grid">
             <label class="wide"><span>Name</span><input bind:value={exerciseDraft.name} placeholder="e.g. Half-kneeling press" maxlength="80" /></label>
@@ -1373,11 +1433,34 @@
               ></textarea></label
             >
             <label class="wide"><span>Reference link · optional</span><input type="url" bind:value={exerciseDraft.guideUrl} placeholder="https://…" /></label>
-            <label class="wide"><span>Image link · cached after first view</span><input type="url" bind:value={exerciseDraft.imageUrl} placeholder="https://…" /></label>
+            <label class="wide"
+              ><span>Image link · cached after first view</span><input type="url" bind:value={exerciseDraft.imageUrl} placeholder="https://…" /></label
+            >
           </div>
           {#if exerciseFormError}<p class="exercise-form-error">
               {exerciseFormError}
             </p>{/if}
+          {#if editingExercise}
+            <div class="exercise-editor-management" aria-label="Exercise management actions">
+              {#if deleteExerciseCandidateId === editingExercise.id}
+                <div class="editor-delete-confirm">
+                  <span>Delete this exercise from the library? Existing workout copies will stay.</span>
+                  <div>
+                    <button type="button" onclick={() => (deleteExerciseCandidateId = null)}>Keep</button>
+                    <button type="button" onclick={() => deleteExerciseDefinition(editingExercise.id)}>Delete</button>
+                  </div>
+                </div>
+              {:else}
+                <button type="button" onclick={() => duplicateExercise(editingExercise)}><Copy size={16} /><span>Duplicate</span></button>
+                <button type="button" onclick={() => toggleExerciseArchive(editingExercise)}
+                  >{#if editingExercise.archived}<ArchiveRestore size={16} /><span>Restore</span>{:else}<Archive size={16} /><span>Archive</span>{/if}</button
+                >
+                {#if editingExercise.custom}<button class="editor-delete" type="button" onclick={() => (deleteExerciseCandidateId = editingExercise.id)}
+                    ><Trash2 size={16} /><span>Delete</span></button
+                  >{/if}
+              {/if}
+            </div>
+          {/if}
           <footer>
             <button type="button" onclick={() => (exerciseEditorOpen = false)}>Cancel</button><button class="save-exercise" type="submit"
               ><Save size={14} /> Save exercise</button
@@ -1409,35 +1492,41 @@
           <header>
             <div>
               <h3>Filters</h3>
-              <p>Muscle, tag, or archive status.</p>
+              <p>
+                {libraryMode === "manage" ? "Muscle, tag, or archive status." : "Narrow the workout picker."}
+              </p>
             </div>
             {#if selectedMuscle !== "All" || showArchived}<button type="button" onclick={clearVaultFilters}>Reset</button>{/if}
           </header>
-          <fieldset>
-            <legend>Library</legend>
-            <div class="vault-filter-mode">
-              <button class:active={!showArchived} type="button" aria-pressed={!showArchived} onclick={() => (showArchived = false)}>Active</button>
-              <button
-                class:active={showArchived}
-                type="button"
-                aria-pressed={showArchived}
-                onclick={() => (showArchived = true)}
-                disabled={!archivedCount}>Archived · {archivedCount}</button
-              >
-            </div>
-          </fieldset>
+          {#if libraryMode === "manage"}
+            <fieldset>
+              <legend>Library</legend>
+              <div class="vault-filter-mode">
+                <button class:active={!showArchived} type="button" aria-pressed={!showArchived} onclick={() => (showArchived = false)}>Active</button>
+                <button class:active={showArchived} type="button" aria-pressed={showArchived} onclick={() => (showArchived = true)} disabled={!archivedCount}
+                  >Archived · {archivedCount}</button
+                >
+              </div>
+            </fieldset>
+          {/if}
           <fieldset>
             <legend>Muscle or tag</legend>
             <div class="vault-filter-options">
               {#each availableGroups as muscle}
-                <button class:active={selectedMuscle === muscle} type="button" aria-pressed={selectedMuscle === muscle} onclick={() => (selectedMuscle = muscle)}
-                  >{muscle}</button
+                <button
+                  class:active={selectedMuscle === muscle}
+                  type="button"
+                  aria-pressed={selectedMuscle === muscle}
+                  onclick={() => (selectedMuscle = muscle)}>{muscle}</button
                 >
               {/each}
             </div>
           </fieldset>
           <footer>
-            <span>{visibleExercises.length} {visibleExercises.length === 1 ? "result" : "results"}</span>
+            <span
+              >{visibleExercises.length}
+              {visibleExercises.length === 1 ? "result" : "results"}</span
+            >
             <button type="button" onclick={() => (vaultFiltersOpen = false)}>Done</button>
           </footer>
         </section>
@@ -1456,52 +1545,23 @@
                 </div>{/if}
             </div>
             <div class="vault-item-actions">
-              {#if !exercise.archived}<button
+              {#if libraryMode === "manage"}
+                <button class="edit-from-vault" type="button" onclick={() => openExerciseEditor(exercise)}><Pencil size={16} /><span>Edit</span></button>
+              {:else if !exercise.archived}<button
                   class:added={dayExercises.some((item) => item.id === exercise.id)}
                   class="add-from-vault"
+                  type="button"
                   onclick={() => addExercise(exercise)}
                   disabled={dayExercises.some((item) => item.id === exercise.id)}
                 >
                   {#if dayExercises.some((item) => item.id === exercise.id)}<Check size={15} /> Added{:else}<Plus size={15} /> Add{/if}
                 </button>{/if}
-              <button
-                class="vault-more"
-                onclick={() => {
-                  exerciseActionsId = exerciseActionsId === exercise.id ? null : exercise.id;
-                  deleteExerciseCandidateId = null;
-                }}
-                aria-expanded={exerciseActionsId === exercise.id}
-                aria-controls={`${exercise.id}-actions`}
-                aria-label={`More actions for ${exercise.name}`}><EllipsisVertical size={19} /></button
-              >
             </div>
-
-            {#if exerciseActionsId === exercise.id}
-              <div class="vault-item-menu" id={`${exercise.id}-actions`}>
-                {#if deleteExerciseCandidateId === exercise.id}
-                  <div class="delete-exercise-confirm">
-                    <span>Delete this exercise from the vault?</span>
-                    <div>
-                      <button onclick={() => (deleteExerciseCandidateId = null)}>Keep</button><button onclick={() => deleteExerciseDefinition(exercise.id)}
-                        >Delete</button
-                      >
-                    </div>
-                  </div>
-                {:else}
-                  <button onclick={() => duplicateExercise(exercise)}><Copy size={16} /><span>Duplicate</span></button>
-                  {#if exercise.custom}<button onclick={() => openExerciseEditor(exercise)}><Pencil size={16} /><span>Edit</span></button>{/if}
-                  <button onclick={() => toggleExerciseArchive(exercise)}
-                    >{#if exercise.archived}<ArchiveRestore size={16} /><span>Restore</span>{:else}<Archive size={16} /><span>Archive</span>{/if}</button
-                  >
-                  {#if exercise.custom}<button class="vault-delete" onclick={() => (deleteExerciseCandidateId = exercise.id)}
-                      ><Trash2 size={16} /><span>Delete</span></button
-                    >{/if}
-                {/if}
-              </div>
-            {/if}
           </article>
         {:else}
-          <p class="vault-empty">Nothing matches that search.</p>
+          <p class="vault-empty">
+            {libraryMode === "manage" ? "Nothing matches that search." : "No exercises match this picker."}
+          </p>
         {/each}
       </div>
 
