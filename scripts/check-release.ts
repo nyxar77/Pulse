@@ -40,10 +40,11 @@ const fdroidCommit = fdroid.match(/^\s+commit:\s*(\S+)$/m)?.[1];
 if (
   fdroidBuildVersion !== versionName ||
   fdroidBuildCode !== versionCodeText ||
-  fdroidCommit !== versionName
+  !fdroidCommit ||
+  !/^[0-9a-f]{40}$/.test(fdroidCommit)
 ) {
   fail(
-    `.fdroid.yml build must use version ${versionName}, code ${versionCode}, and commit ${versionName}`,
+    `.fdroid.yml build must use version ${versionName}, code ${versionCode}, and a full commit hash`,
   );
 }
 

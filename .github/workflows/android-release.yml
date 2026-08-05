@@ -3,12 +3,18 @@ name: Android release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: android-release-${{ github.event.release.id }}
+  group: android-release-${{ github.event.release.id || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -17,13 +23,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      PULSE_RELEASE_TAG: ${{ github.event.release.tag_name }}
+      PULSE_RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
     steps:
       - name: Check out release
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Pin web build version
+        shell: bash
+        run: |
+          if ! grep -q 'version:' svelte.config.js; then
+            perl -0pi -e 's/adapter: adapter\(\),/adapter: adapter(),\n    version: { name: "$ENV{PULSE_RELEASE_TAG}" },/' svelte.config.js
+          fi
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -63,6 +76,10 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
 
+      - name: Install reproducible signing tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0"
+
       - name: Sign and verify APK
         id: sign
         env:
@@ -75,20 +92,21 @@ jobs:
           keystore="$RUNNER_TEMP/pulse-release.p12"
           printf '%s' "$PULSE_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
 
-          safe_tag="${GITHUB_REF_NAME//\//-}"
+          safe_tag="${PULSE_RELEASE_TAG//\//-}"
           apk="$RUNNER_TEMP/Pulse-$safe_tag.apk"
           unsigned_apk="android/app/build/outputs/apk/release/app-release-unsigned.apk"
-          build_tools="$ANDROID_HOME/build-tools/36.0.0"
+          align_tools="$ANDROID_HOME/build-tools/36.0.0"
+          sign_tools="$ANDROID_HOME/build-tools/34.0.0"
 
-          "$build_tools/zipalign" -f -p 4 "$unsigned_apk" "$apk"
-          "$build_tools/apksigner" sign \
+          "$align_tools/zipalign" -f -p 4 "$unsigned_apk" "$apk"
+          "$sign_tools/apksigner" sign \
             --ks "$keystore" \
             --ks-type PKCS12 \
             --ks-key-alias pulse \
             --ks-pass env:PULSE_ANDROID_KEYSTORE_PASSWORD \
             --key-pass env:PULSE_ANDROID_KEYSTORE_PASSWORD \
             "$apk"
-          "$build_tools/apksigner" verify --verbose --print-certs "$apk"
+          "$sign_tools/apksigner" verify --verbose --print-certs "$apk"
 
           echo "apk=$apk" >> "$GITHUB_OUTPUT"
 
@@ -96,4 +114,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           APK_PATH: ${{ steps.sign.outputs.apk }}
-        run: gh release upload "$GITHUB_REF_NAME" "$APK_PATH" --clobber
+        run: gh release upload "$PULSE_RELEASE_TAG" "$APK_PATH" --clobber
