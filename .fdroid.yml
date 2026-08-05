@@ -19,8 +19,8 @@ Builds:
     commit: d0f4c8b40f9a744b376898184b79ff33db8a482d
     subdir: android/app
     sudo:
-      - echo deb https://deb.debian.org/debian trixie main > /etc/apt/sources.list.d/trixie.list
-      - echo deb https://deb.debian.org/debian forky main > /etc/apt/sources.list.d/forky.list
+      - echo "deb https://deb.debian.org/debian trixie main" > /etc/apt/sources.list.d/trixie.list
+      - echo "deb https://deb.debian.org/debian forky main" > /etc/apt/sources.list.d/forky.list
       - apt-get update
       - apt-get install -y -t forky golang-go make nodejs npm
       - apt-get install -y -t trixie openjdk-21-jdk-headless
@@ -33,7 +33,8 @@ Builds:
     prebuild:
       - cd ../..
       - npm ci
-      - 'sed -i ''s/adapter: adapter(),/adapter: adapter(), version: { name: "0.1.2" },/'' svelte.config.js'
+      - "sed -i 's/adapter: adapter(),/adapter: adapter(), version: { name: \"0.1.2\"\
+        \ },/' svelte.config.js"
       - rm node_modules/@capacitor/cli/assets/android-template.tar.gz
       - rm node_modules/@capacitor/cli/assets/capacitor-cordova-ios-plugins.tar.gz
       - rm node_modules/@capacitor/cli/assets/ios-pods-template.tar.gz
@@ -54,6 +55,7 @@ Builds:
       - popd
 
 AllowedAPKSigningKeys: ee3d16e34033a39c583cda01b6db00dd4fa4a6a5ad07023d3b7bfc877841ed65
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^[0-9]+\.[0-9]+\.[0-9]+$
 CurrentVersion: 0.1.2
