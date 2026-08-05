@@ -46,6 +46,7 @@ select {
 button {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   transition:
     color 140ms ease,
     background-color 140ms ease,
@@ -81,6 +82,8 @@ select:focus-visible {
 
 a {
   color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .app[data-theme="mocha"] {
@@ -382,8 +385,23 @@ md-fab {
   z-index: 39;
   inset: 0;
   padding: 0;
+  opacity: var(--sheet-scrim-opacity, 1);
   border: 0;
   background: color-mix(in srgb, #000 48%, transparent);
+  transition: opacity 190ms ease;
+  will-change: opacity;
+  animation: scrim-in 180ms ease-out;
+}
+
+.drawer-scrim.closing {
+  pointer-events: none;
+  opacity: 0;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .vault-heading,
@@ -422,7 +440,7 @@ md-fab {
 }
 
 .flavour-options button,
-.muscle-filters button {
+.vault-filter-options button {
   min-height: 40px;
   display: inline-flex;
   align-items: center;
@@ -437,7 +455,7 @@ md-fab {
 }
 
 .flavour-options button.active,
-.muscle-filters button.active {
+.vault-filter-options button.active {
   color: var(--md-sys-color-on-primary-container);
   border-color: transparent;
   background: var(--md-sys-color-primary-container);
@@ -1466,6 +1484,7 @@ md-fab {
 }
 
 .exercise-vault {
+  --sheet-drag-y: 0px;
   position: fixed;
   z-index: 45;
   top: max(16px, var(--safe-top));
@@ -1478,7 +1497,52 @@ md-fab {
   border-radius: 28px;
   background: var(--md-sys-color-surface-container);
   box-shadow: 0 18px 56px color-mix(in srgb, #000 42%, transparent);
+  transition:
+    opacity 180ms ease,
+    transform 190ms cubic-bezier(0.2, 0, 0, 1);
+  backface-visibility: hidden;
+  will-change: transform;
   animation: drawer-in 190ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.exercise-vault.closing {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(24px);
+}
+
+.vault-drag-handle {
+  width: 100%;
+  min-height: 30px;
+  display: none;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  border: 0;
+  border-radius: 28px 28px 0 0;
+  background: transparent;
+}
+
+.vault-drag-handle:active {
+  cursor: grabbing;
+  transform: none;
+}
+
+.vault-drag-handle > span {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 30%, transparent);
+  transition:
+    width 140ms ease,
+    background-color 140ms ease;
+}
+
+.exercise-vault.dragging .vault-drag-handle > span {
+  width: 50px;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 48%, transparent);
 }
 
 @keyframes drawer-in {
@@ -1489,6 +1553,15 @@ md-fab {
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translate3d(0, 100%, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -1608,6 +1681,16 @@ md-fab {
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
+.vault-title {
+  min-width: 0;
+}
+
+.vault-title p {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.76rem;
+}
+
 .vault-heading-actions {
   display: flex;
   align-items: center;
@@ -1696,38 +1779,166 @@ md-fab {
   background: transparent;
 }
 
-.archived-toggle {
-  min-height: 44px;
+.vault-search > button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.vault-search > button:not(.vault-filter-button) {
+  width: 32px;
+  height: 32px;
+}
+
+.vault-filter-button {
+  position: relative;
+}
+
+.vault-filter-button.active,
+.vault-filter-button.filtered {
+  color: var(--md-sys-color-on-primary-container);
+  background: var(--md-sys-color-primary-container);
+}
+
+.vault-filter-button.filtered::after {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  content: "";
+  border: 2px solid var(--md-sys-color-primary-container);
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+}
+
+.vault-filter-panel {
+  max-height: min(390px, 48dvh);
+  margin: 0 18px 12px;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: 0 10px 30px color-mix(in srgb, #000 24%, transparent);
+  animation: filter-panel-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.vault-filter-panel > header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vault-filter-panel h3,
+.vault-filter-panel p {
+  margin: 0;
+}
+
+.vault-filter-panel h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.vault-filter-panel header p {
+  margin-top: 3px;
   color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.74rem;
+}
+
+.vault-filter-panel header > button {
+  min-height: 38px;
+  padding: 0 12px;
+  color: var(--md-sys-color-primary);
   border: 0;
   border-radius: 999px;
   background: transparent;
 }
 
-.archived-toggle.active {
+.vault-filter-panel fieldset {
+  min-width: 0;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.vault-filter-panel legend {
+  margin-bottom: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.vault-filter-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.vault-filter-mode button {
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.vault-filter-mode button.active {
   color: var(--md-sys-color-on-primary-container);
   background: var(--md-sys-color-primary-container);
 }
 
-.muscle-filters {
-  min-height: 51px;
+.vault-filter-options {
   display: flex;
-  gap: 8px;
-  padding: 0 18px 10px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
-.muscle-filters::-webkit-scrollbar {
-  display: none;
+.vault-filter-options button {
+  min-height: 38px;
 }
 
-.muscle-filters button {
+.vault-filter-panel > footer {
+  position: sticky;
+  bottom: -16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.76rem;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.vault-filter-panel > footer button {
   min-height: 40px;
+  padding: 0 18px;
+  color: var(--md-sys-color-on-primary-container);
+  border: 0;
+  border-radius: 999px;
+  background: var(--md-sys-color-primary-container);
+}
+
+@keyframes filter-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.99);
+  }
 }
 
 .vault-list {
@@ -1735,6 +1946,8 @@ md-fab {
   flex: 1;
   margin: 0 18px 18px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border-radius: 20px;
   background: var(--md-sys-color-surface-container-low);
 }
@@ -1895,6 +2108,33 @@ md-fab {
   padding: 40px 20px;
   color: var(--md-sys-color-on-surface-variant);
   text-align: center;
+}
+
+@media (max-width: 600px), (max-width: 900px) and (max-height: 520px) and (orientation: landscape) {
+  .exercise-vault {
+    inset: max(8px, calc(var(--safe-top) + 6px)) 0 0;
+    width: 100%;
+    border-radius: 28px 28px 0 0;
+    box-shadow: 0 -8px 36px color-mix(in srgb, #000 38%, transparent);
+    transform: translate3d(0, var(--sheet-drag-y), 0);
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: sheet-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .exercise-vault.dragging {
+    transition: none;
+    animation: none;
+    user-select: none;
+  }
+
+  .exercise-vault.closing {
+    opacity: 1;
+    transform: translate3d(0, calc(100% + var(--safe-bottom)), 0);
+  }
+
+  .vault-drag-handle {
+    display: grid;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2246,77 +2486,87 @@ md-fab {
     width: 100%;
   }
 
-  .exercise-vault {
-    inset: var(--safe-top) 0 0;
-    width: 100%;
-    border-radius: 0;
-    animation-name: sheet-in;
-  }
-
-  @keyframes sheet-in {
-    from {
-      opacity: 0;
-      transform: translateY(18px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   .settings-group {
     padding: 18px 14px;
     border-radius: 20px;
   }
 
   .vault-heading {
-    min-height: 64px;
-    padding: 8px 8px 8px 16px;
+    min-height: 58px;
+    padding: 0 8px 8px 18px;
+    border-bottom: 0;
   }
 
   .vault-heading h2 {
-    font-size: 1.25rem;
+    font-size: 1.16rem;
+  }
+
+  .vault-title p {
+    margin-top: 3px;
+    font-size: 0.72rem;
   }
 
   .create-exercise {
     width: 44px;
     padding: 0;
-    font-size: 0;
     border-radius: 50%;
   }
 
+  .create-exercise > span {
+    display: none;
+  }
+
+  .vault-heading-actions .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
   .vault-tools {
-    padding: 12px 12px 8px;
+    padding: 6px 12px 8px;
   }
 
   .vault-search {
-    height: 52px;
+    height: 50px;
+    padding-inline: 16px 8px;
   }
 
-  .archived-toggle {
-    width: 44px;
-    padding: 0;
-    justify-content: center;
-    font-size: 0;
+  .vault-filter-panel {
+    max-height: min(380px, 50dvh);
+    margin: 0 8px 10px;
+    padding: 14px;
+    border-radius: 18px;
   }
 
-  .muscle-filters {
-    padding-inline: 12px;
+  .vault-filter-panel > footer {
+    bottom: -14px;
   }
 
   .vault-list {
-    margin: 0;
-    border-radius: 0;
+    margin: 0 8px max(8px, var(--safe-bottom));
+    border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 72%, transparent);
+    border-radius: 20px;
+    scrollbar-gutter: auto;
   }
 
   .vault-item {
-    min-height: 76px;
-    padding: 11px 8px 11px 12px;
+    min-height: 82px;
+    padding: 13px 8px 13px 14px;
+  }
+
+  .vault-item-copy h3 {
+    display: -webkit-box;
+    overflow: hidden;
+    line-height: 1.3;
+    text-overflow: initial;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .vault-item-actions .add-from-vault {
-    min-width: 70px;
-    padding-inline: 11px;
+    min-width: 76px;
+    min-height: 44px;
+    padding-inline: 12px;
   }
 
   .vault-item-menu {

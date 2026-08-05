@@ -27,6 +27,7 @@
   } from "$lib/ledger";
   import { applyNativeTheme, isNativeApp, shareLedgerFile } from "$lib/native";
   import { equipmentOptions, muscleOptions } from "$lib/options";
+  import { sheetDragProgress, shouldDismissSheet } from "$lib/sheet";
   import { loadLedgerData, saveLedgerData } from "$lib/storage";
   import type { Exercise, TrainingDay, TrainingHistory, WeekSchedule, WorkoutExercise } from "$lib/types";
   import Activity from "lucide-svelte/icons/activity";
@@ -47,6 +48,7 @@
   import FileJson from "lucide-svelte/icons/file-json";
   import GripVertical from "lucide-svelte/icons/grip-vertical";
   import LibraryBig from "lucide-svelte/icons/library-big";
+  import ListFilter from "lucide-svelte/icons/list-filter";
   import Minus from "lucide-svelte/icons/minus";
   import Pencil from "lucide-svelte/icons/pencil";
   import Plus from "lucide-svelte/icons/plus";
@@ -72,6 +74,7 @@
   type ViewTransitionDocument = Document & {
     startViewTransition?: (update: () => void | Promise<void>) => void;
   };
+  const mobileVaultQuery = "(max-width: 600px), (max-width: 900px) and (max-height: 520px) and (orientation: landscape)";
   const initialDate = new Date();
   const initialWeekday = weekIndex(initialDate);
   let days: TrainingDay[] = createFixedWeekDays();
@@ -110,7 +113,21 @@
   let transferMessage = "";
   let addMovementButton: HTMLElement | undefined;
   let vaultCloseButton: HTMLButtonElement | undefined;
+  let vaultElement: HTMLDivElement | undefined;
+  let vaultScrim: HTMLButtonElement | undefined;
   let dragPointerId: number | null = null;
+  let libraryClosing = false;
+  let libraryReturnFocus: HTMLElement | null = null;
+  let vaultFiltersOpen = false;
+  let vaultDragY = 0;
+  let vaultDragPointerId: number | null = null;
+  let vaultDragStartY = 0;
+  let vaultDragLastY = 0;
+  let vaultDragLastAt = 0;
+  let vaultDragVelocity = 0;
+  let vaultDragSheetHeight = 0;
+  let vaultDragMoved = false;
+  let vaultRenderFrame: number | null = null;
 
   $: availableGroups = ["All", ...new Set([...suggestedGroups, ...savedExercises.flatMap((exercise) => [...exercise.muscles, ...(exercise.tags ?? [])])])];
   $: archivedCount = savedExercises.filter((exercise) => exercise.archived).length;
@@ -121,7 +138,6 @@
     const matchesMuscle = selectedMuscle === "All" || exercise.muscles.includes(selectedMuscle) || exercise.tags?.includes(selectedMuscle);
     return matchesSearch && matchesMuscle && Boolean(exercise.archived) === showArchived;
   });
-
   $: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? "Untitled day";
   $: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
   $: todayIndex = currentDate ? weekIndex(currentDate) : 0;
@@ -172,6 +188,7 @@
       const listener = await App.addListener("backButton", () => {
         if (exerciseEditorOpen) exerciseEditorOpen = false;
         else if (exerciseActionsId) exerciseActionsId = null;
+        else if (vaultFiltersOpen) vaultFiltersOpen = false;
         else if (libraryOpen) closeLibrary(false);
         else if (editMode) toggleEditMode();
         else void App.minimizeApp();
@@ -588,33 +605,203 @@
   }
 
   async function openLibrary() {
+    if (libraryOpen) return;
+    libraryReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    libraryClosing = false;
+    resetVaultDrag();
     libraryOpen = true;
     await tick();
     vaultCloseButton?.focus();
   }
 
   async function closeLibrary(returnFocus = true) {
+    if (!libraryOpen || libraryClosing) return;
+    const animate = browser && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (animate) {
+      libraryClosing = true;
+      stopVaultDragRendering();
+      vaultElement?.classList.remove("dragging");
+      await new Promise((resolve) => window.setTimeout(resolve, 220));
+    }
     libraryOpen = false;
+    libraryClosing = false;
+    resetVaultDrag();
     exerciseEditorOpen = false;
     exerciseActionsId = null;
-    if (!returnFocus) return;
+    deleteExerciseCandidateId = null;
+    vaultFiltersOpen = false;
+    if (!returnFocus) {
+      libraryReturnFocus = null;
+      return;
+    }
     await tick();
-    addMovementButton?.focus();
+    const returnTarget = libraryReturnFocus?.isConnected ? libraryReturnFocus : addMovementButton;
+    returnTarget?.focus();
+    libraryReturnFocus = null;
+  }
+
+  function resetVaultDrag() {
+    stopVaultDragRendering();
+    vaultElement?.classList.remove("dragging");
+    vaultElement?.style.removeProperty("--sheet-drag-y");
+    vaultScrim?.style.removeProperty("--sheet-scrim-opacity");
+    vaultDragY = 0;
+    vaultDragPointerId = null;
+    vaultDragStartY = 0;
+    vaultDragLastY = 0;
+    vaultDragLastAt = 0;
+    vaultDragVelocity = 0;
+    vaultDragSheetHeight = 0;
+    vaultDragMoved = false;
+  }
+
+  function stopVaultDragRendering() {
+    if (vaultRenderFrame === null) return;
+    window.cancelAnimationFrame(vaultRenderFrame);
+    vaultRenderFrame = null;
+  }
+
+  function renderVaultDrag() {
+    vaultRenderFrame = null;
+    const progress = sheetDragProgress(vaultDragY, vaultDragSheetHeight);
+    vaultElement?.style.setProperty("--sheet-drag-y", `${vaultDragY}px`);
+    vaultScrim?.style.setProperty("--sheet-scrim-opacity", String(Math.max(0.18, 1 - progress * 1.15)));
+  }
+
+  function scheduleVaultDragRender() {
+    if (vaultRenderFrame !== null) return;
+    vaultRenderFrame = window.requestAnimationFrame(renderVaultDrag);
+  }
+
+  function updateVaultDrag(event: PointerEvent) {
+    const now = performance.now();
+    const deltaTime = now - vaultDragLastAt;
+    const deltaY = event.clientY - vaultDragLastY;
+    if (deltaTime > 0 && Math.abs(deltaY) > 0.5) {
+      const instantVelocity = deltaY / deltaTime;
+      vaultDragVelocity = vaultDragVelocity === 0 ? instantVelocity : instantVelocity * 0.72 + vaultDragVelocity * 0.28;
+      vaultDragLastY = event.clientY;
+      vaultDragLastAt = now;
+    }
+    vaultDragY = Math.max(0, event.clientY - vaultDragStartY);
+    if (vaultDragY > 5) vaultDragMoved = true;
+    scheduleVaultDragRender();
+  }
+
+  function startVaultDrag(event: PointerEvent) {
+    if (!window.matchMedia(mobileVaultQuery).matches || event.button !== 0 || libraryClosing) return;
+    event.preventDefault();
+    stopVaultDragRendering();
+    vaultElement?.classList.add("dragging");
+    vaultDragY = 0;
+    vaultDragMoved = false;
+    vaultDragPointerId = event.pointerId;
+    vaultDragStartY = event.clientY;
+    vaultDragLastY = event.clientY;
+    vaultDragLastAt = performance.now();
+    vaultDragVelocity = 0;
+    vaultDragSheetHeight = vaultElement?.clientHeight ?? 0;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function moveVaultDrag(event: PointerEvent) {
+    if (vaultDragPointerId !== event.pointerId) return;
+    event.preventDefault();
+    updateVaultDrag(event);
+  }
+
+  function finishVaultDrag(event: PointerEvent, cancelled = false) {
+    if (vaultDragPointerId !== event.pointerId) return;
+    const handle = event.currentTarget as HTMLElement;
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    if (Math.abs(event.clientY - vaultDragLastY) > 0.5) updateVaultDrag(event);
+    stopVaultDragRendering();
+    renderVaultDrag();
+    const releaseVelocity = performance.now() - vaultDragLastAt <= 90 ? vaultDragVelocity : 0;
+    const dismiss =
+      !cancelled &&
+      shouldDismissSheet({
+        distance: vaultDragY,
+        velocity: releaseVelocity,
+        sheetHeight: vaultDragSheetHeight,
+      });
+    vaultDragPointerId = null;
+    vaultElement?.classList.remove("dragging");
+    if (dismiss) void closeLibrary();
+    else {
+      vaultDragY = 0;
+      window.requestAnimationFrame(renderVaultDrag);
+    }
+  }
+
+  function activateVaultHandle(event: MouseEvent) {
+    if (event.detail > 0 && vaultDragMoved) {
+      event.preventDefault();
+      vaultDragMoved = false;
+      return;
+    }
+    vaultDragMoved = false;
+    void closeLibrary();
+  }
+
+  function clearVaultFilters() {
+    selectedMuscle = "All";
+    showArchived = false;
+  }
+
+  function trapVaultFocus(event: KeyboardEvent) {
+    if (!vaultElement) return;
+    const focusable = [
+      ...vaultElement.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])",
+      ),
+    ].filter((element) => element.getClientRects().length > 0);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1) ?? first;
+    if (event.shiftKey && (document.activeElement === first || !vaultElement.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function handlePopoverKeydown(event: KeyboardEvent) {
+    if (event.key === "Tab" && libraryOpen) {
+      trapVaultFocus(event);
+      return;
+    }
     if (event.key !== "Escape") return;
     if (exerciseEditorOpen) {
       exerciseEditorOpen = false;
     } else if (exerciseActionsId) {
       exerciseActionsId = null;
+    } else if (vaultFiltersOpen) {
+      vaultFiltersOpen = false;
     } else if (libraryOpen) {
       void closeLibrary();
     }
   }
+
+  function handleGlobalPointerDown(event: PointerEvent) {
+    if (!(event.target instanceof Element)) return;
+    if (vaultFiltersOpen && !event.target.closest(".vault-filter-button, .vault-filter-panel")) vaultFiltersOpen = false;
+    if (exerciseActionsId && !event.target.closest(".vault-more, .vault-item-menu")) {
+      exerciseActionsId = null;
+      deleteExerciseCandidateId = null;
+    }
+  }
 </script>
 
-<svelte:window onpointermove={handlePointerReorder} onpointerup={stopPointerReorder} onpointercancel={stopPointerReorder} onkeydown={handlePopoverKeydown} />
+<svelte:window
+  onpointerdown={handleGlobalPointerDown}
+  onpointermove={handlePointerReorder}
+  onpointerup={stopPointerReorder}
+  onpointercancel={stopPointerReorder}
+  onkeydown={handlePopoverKeydown}
+/>
 
 <svelte:head>
   <title>Pulse — Workout planner</title>
@@ -622,7 +809,7 @@
 </svelte:head>
 
 <div class="app" data-theme={theme} data-accent={accent}>
-  <header class="masthead">
+  <header class="masthead" inert={libraryOpen}>
     <a class="wordmark" href="/" aria-label="Pulse home">
       <span class="wordmark-icon"><Activity size={18} strokeWidth={2.4} /></span>
       <strong>Pulse</strong>
@@ -633,7 +820,7 @@
     </div>
   </header>
 
-  <nav class="app-navigation" aria-label="Main navigation">
+  <nav class="app-navigation" aria-label="Main navigation" inert={libraryOpen}>
     <button class:active={activeView === "today"} onclick={() => showView("today")} aria-current={activeView === "today" ? "page" : undefined}>
       <CalendarDays size={21} />
       <span>Today</span>
@@ -642,7 +829,7 @@
       <Dumbbell size={21} />
       <span>Programme</span>
     </button>
-    <button onclick={() => openLibrary()}>
+    <button class:active={libraryOpen} onclick={() => openLibrary()} aria-expanded={libraryOpen} aria-haspopup="dialog">
       <LibraryBig size={21} />
       <span>Exercises</span>
     </button>
@@ -652,7 +839,7 @@
     </button>
   </nav>
 
-  <main class="app-content">
+  <main class="app-content" inert={libraryOpen}>
     {#if activeView === "today"}
       <section class="screen today-screen" aria-labelledby="today-title">
         <header class="screen-heading">
@@ -1089,16 +1276,46 @@
   </main>
 
   {#if libraryOpen}
-    <button class="drawer-scrim" tabindex="-1" onclick={() => closeLibrary()} aria-label="Close exercise vault"></button>
-    <div class="exercise-vault" role="dialog" aria-modal="true" aria-labelledby="vault-title">
+    <button
+      bind:this={vaultScrim}
+      class:closing={libraryClosing}
+      class="drawer-scrim"
+      tabindex="-1"
+      onclick={() => closeLibrary()}
+      aria-label="Close exercise library"
+    ></button>
+    <div
+      bind:this={vaultElement}
+      class:closing={libraryClosing}
+      class="exercise-vault"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="vault-title"
+    >
+      <button
+        class="vault-drag-handle"
+        type="button"
+        aria-label="Swipe down or tap to close the exercise library"
+        title="Drag down to close"
+        onpointerdown={startVaultDrag}
+        onpointermove={moveVaultDrag}
+        onpointerup={finishVaultDrag}
+        onpointercancel={(event) => finishVaultDrag(event, true)}
+        onclick={activateVaultHandle}><span></span></button
+      >
       <header class="vault-heading">
-        <div>
-          <p class="kicker">Movement archive</p>
-          <h2 id="vault-title">Exercise vault</h2>
+        <div class="vault-title">
+          <h2 id="vault-title">Exercise library</h2>
+          <p aria-live="polite">
+            {visibleExercises.length}
+            {showArchived ? "archived" : "available"}
+          </p>
         </div>
         <div class="vault-heading-actions">
-          <button class="create-exercise" onclick={openExerciseCreator}><Plus size={15} /> New exercise</button>
-          <button bind:this={vaultCloseButton} class="icon-button" onclick={() => closeLibrary()} aria-label="Close exercise vault"><X size={18} /></button>
+          <button class="create-exercise" onclick={openExerciseCreator}><Plus size={15} /><span>New exercise</span></button>
+          <button bind:this={vaultCloseButton} class="icon-button" onclick={() => closeLibrary()} aria-label="Close exercise library" title="Close"
+            ><X size={18} /></button
+          >
         </div>
       </header>
 
@@ -1159,24 +1376,61 @@
       {/if}
 
       <div class="vault-tools">
-        <label class="vault-search"><Search size={16} /><input placeholder="Search names, tags, equipment" bind:value={search} /></label>
-        {#if archivedCount}<button
-            class:active={showArchived}
-            class="archived-toggle"
-            onclick={() => {
-              showArchived = !showArchived;
-              selectedMuscle = "All";
-            }}
+        <div class="vault-search" role="search">
+          <Search size={17} aria-hidden="true" />
+          <input aria-label="Search exercises" placeholder="Search names, tags, equipment" bind:value={search} />
+          {#if search}<button type="button" onclick={() => (search = "")} aria-label="Clear exercise search"><X size={16} /></button>{/if}
+          <button
+            class:active={vaultFiltersOpen}
+            class:filtered={selectedMuscle !== "All" || showArchived}
+            class="vault-filter-button"
+            type="button"
+            onclick={() => (vaultFiltersOpen = !vaultFiltersOpen)}
+            aria-expanded={vaultFiltersOpen}
+            aria-controls="vault-filters"
+            aria-label="Filter exercises"><ListFilter size={18} /></button
           >
-            {#if showArchived}<ArchiveRestore size={14} /> Active exercises{:else}<Archive size={14} /> Archived · {archivedCount}{/if}
-          </button>{/if}
+        </div>
       </div>
 
-      <div class="muscle-filters" aria-label="Filter exercises by muscle or personal tag">
-        {#each availableGroups as muscle}
-          <button class:active={selectedMuscle === muscle} onclick={() => (selectedMuscle = muscle)}>{muscle}</button>
-        {/each}
-      </div>
+      {#if vaultFiltersOpen}
+        <section class="vault-filter-panel" id="vault-filters" aria-label="Exercise filters">
+          <header>
+            <div>
+              <h3>Filters</h3>
+              <p>Muscle, tag, or archive status.</p>
+            </div>
+            {#if selectedMuscle !== "All" || showArchived}<button type="button" onclick={clearVaultFilters}>Reset</button>{/if}
+          </header>
+          <fieldset>
+            <legend>Library</legend>
+            <div class="vault-filter-mode">
+              <button class:active={!showArchived} type="button" aria-pressed={!showArchived} onclick={() => (showArchived = false)}>Active</button>
+              <button
+                class:active={showArchived}
+                type="button"
+                aria-pressed={showArchived}
+                onclick={() => (showArchived = true)}
+                disabled={!archivedCount}>Archived · {archivedCount}</button
+              >
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Muscle or tag</legend>
+            <div class="vault-filter-options">
+              {#each availableGroups as muscle}
+                <button class:active={selectedMuscle === muscle} type="button" aria-pressed={selectedMuscle === muscle} onclick={() => (selectedMuscle = muscle)}
+                  >{muscle}</button
+                >
+              {/each}
+            </div>
+          </fieldset>
+          <footer>
+            <span>{visibleExercises.length} {visibleExercises.length === 1 ? "result" : "results"}</span>
+            <button type="button" onclick={() => (vaultFiltersOpen = false)}>Done</button>
+          </footer>
+        </section>
+      {/if}
 
       <div class="vault-list">
         {#each visibleExercises as exercise (exercise.id)}
