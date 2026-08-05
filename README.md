@@ -6,7 +6,7 @@ Pulse is a local-first weekly workout planner for Android and the web. It is bui
 
 - Maps custom workouts onto the seven days of the week
 - Shows the workout that matches the device's current local date
-- Saves a reusable exercise library with muscles, equipment, notes, images, and guide links
+- Saves a reusable exercise library with muscles, equipment, notes, cached reference images, and guide links
 - Stores sets, reps, weight, and rest targets with drag-to-reorder priority
 - Tracks completed exercises by date
 - Imports and exports the complete programme as JSON

@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { build, files, prerendered, version } from '$service-worker';
+import { exerciseImageCacheName, loadExerciseImage } from '$lib/exercise-image-cache';
 
 const worker = globalThis as unknown as ServiceWorkerGlobalScope;
 const cacheName = `pulse-${version}`;
@@ -15,7 +16,11 @@ worker.addEventListener('install', (event) => {
 worker.addEventListener('activate', (event) => {
 	event.waitUntil(
 		Promise.all([
-			caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith('pulse-') && key !== cacheName).map((key) => caches.delete(key)))),
+			caches
+				.keys()
+				.then((keys) =>
+					Promise.all(keys.filter((key) => key.startsWith('pulse-') && key !== cacheName && key !== exerciseImageCacheName).map((key) => caches.delete(key)))
+				),
 			worker.clients.claim()
 		])
 	);
@@ -26,7 +31,12 @@ worker.addEventListener('fetch', (event) => {
 	if (request.method !== 'GET') return;
 
 	const url = new URL(request.url);
-	if (url.origin !== worker.location.origin) return;
+	if (url.origin !== worker.location.origin) {
+		if (request.destination === 'image' && (url.protocol === 'https:' || url.protocol === 'http:')) {
+			event.respondWith(loadExerciseImage(request));
+		}
+		return;
+	}
 
 	if (appFileSet.has(url.pathname)) {
 		event.respondWith(caches.match(request).then((cached) => cached ?? fetch(request)));

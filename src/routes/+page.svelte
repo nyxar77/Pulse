@@ -1145,7 +1145,7 @@
               ></textarea></label
             >
             <label class="wide"><span>Reference link · optional</span><input type="url" bind:value={exerciseDraft.guideUrl} placeholder="https://…" /></label>
-            <label class="wide"><span>Image link · optional</span><input type="url" bind:value={exerciseDraft.imageUrl} placeholder="https://…" /></label>
+            <label class="wide"><span>Image link · cached after first view</span><input type="url" bind:value={exerciseDraft.imageUrl} placeholder="https://…" /></label>
           </div>
           {#if exerciseFormError}<p class="exercise-form-error">
               {exerciseFormError}
