@@ -138,6 +138,7 @@
     const matchesMuscle = selectedMuscle === "All" || exercise.muscles.includes(selectedMuscle) || exercise.tags?.includes(selectedMuscle);
     return matchesSearch && matchesMuscle && Boolean(exercise.archived) === showArchived;
   });
+  $: vaultAddVisible = !exerciseEditorOpen && !vaultFiltersOpen && !showArchived && !exerciseActionsId && !libraryClosing;
   $: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? "Untitled day";
   $: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
   $: todayIndex = currentDate ? weekIndex(currentDate) : 0;
@@ -1287,6 +1288,7 @@
     <div
       bind:this={vaultElement}
       class:closing={libraryClosing}
+      class:fab-visible={vaultAddVisible}
       class="exercise-vault"
       role="dialog"
       aria-modal="true"
@@ -1493,6 +1495,19 @@
           <p class="vault-empty">Nothing matches that search.</p>
         {/each}
       </div>
+
+      <button
+        class:visible={vaultAddVisible}
+        class="vault-add-fab"
+        type="button"
+        onclick={openExerciseCreator}
+        disabled={!vaultAddVisible}
+        aria-hidden={!vaultAddVisible}
+        tabindex={vaultAddVisible ? 0 : -1}
+      >
+        <Plus size={20} strokeWidth={2.3} />
+        <span>Add exercise</span>
+      </button>
     </div>
   {/if}
 </div>

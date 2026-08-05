@@ -1711,6 +1711,10 @@ md-fab {
   background: var(--md-sys-color-primary-container);
 }
 
+.vault-add-fab {
+  display: none;
+}
+
 .exercise-editor {
   margin: 16px 18px 0;
   padding: 20px;
@@ -2132,6 +2136,55 @@ md-fab {
     transform: translate3d(0, calc(100% + var(--safe-bottom)), 0);
   }
 
+  .create-exercise {
+    display: none;
+  }
+
+  .vault-add-fab {
+    position: absolute;
+    z-index: 8;
+    right: max(18px, calc(var(--safe-right) + 12px));
+    bottom: max(20px, calc(var(--safe-bottom) + 12px));
+    height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 20px;
+    color: var(--md-sys-color-on-primary-container);
+    pointer-events: none;
+    opacity: 0;
+    border: 0;
+    border-radius: 18px;
+    background: var(--md-sys-color-primary-container);
+    box-shadow: 0 8px 24px color-mix(in srgb, #000 34%, transparent);
+    transform: translate3d(0, 14px, 0) scale(0.94);
+    transition:
+      opacity 160ms ease,
+      background-color 140ms ease,
+      box-shadow 160ms ease,
+      transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    will-change: opacity, transform;
+  }
+
+  .vault-add-fab.visible {
+    pointer-events: auto;
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .exercise-vault.dragging .vault-add-fab,
+  .exercise-vault.closing .vault-add-fab {
+    pointer-events: none;
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.96);
+  }
+
+  .exercise-vault.fab-visible .vault-list {
+    padding-bottom: 84px;
+    scroll-padding-bottom: 92px;
+  }
+
   .vault-drag-handle {
     display: grid;
   }
@@ -2504,16 +2557,6 @@ md-fab {
   .vault-title p {
     margin-top: 3px;
     font-size: 0.72rem;
-  }
-
-  .create-exercise {
-    width: 44px;
-    padding: 0;
-    border-radius: 50%;
-  }
-
-  .create-exercise > span {
-    display: none;
   }
 
   .vault-heading-actions .icon-button {
