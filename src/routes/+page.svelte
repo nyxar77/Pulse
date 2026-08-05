@@ -12,6 +12,7 @@
     moveItem,
     normaliseTrainingHistory,
     normaliseWeight,
+    orderExercisesByCompletion,
     parseWeight,
     reorderItems,
     stepWeight,
@@ -58,6 +59,7 @@
   import Trash2 from "lucide-svelte/icons/trash-2";
   import Upload from "lucide-svelte/icons/upload";
   import X from "lucide-svelte/icons/x";
+  import { flip } from "svelte/animate";
   import { onMount, tick } from "svelte";
 
   const suggestedGroups = ["Chest", "Back", "Shoulders", "Arms", "Legs", "Core"];
@@ -146,7 +148,9 @@
   $: todayPlanId = schedule[todayIndex] ?? null;
   $: todayPlan = todayPlanId ? (days.find((day) => day.id === todayPlanId) ?? null) : null;
   $: todayExercises = todayPlanId ? (todayPlanId === activeDayId ? dayExercises : (workouts[todayPlanId] ?? [])) : [];
-  $: todayCompleted = new Set(todayKey ? (history[todayKey] ?? []) : []);
+  $: todayCompletionOrder = todayKey ? (history[todayKey] ?? []) : [];
+  $: todayCompleted = new Set(todayCompletionOrder);
+  $: orderedTodayExercises = orderExercisesByCompletion(todayExercises, todayCompletionOrder);
   $: completedTodayCount = todayExercises.filter((exercise) => todayCompleted.has(exercise.id)).length;
   $: if (browser) void applyNativeTheme(theme);
   $: if (browser && hydrated) {
@@ -887,8 +891,13 @@
 
           {#if todayExercises.length}
             <div class="exercise-list today-exercise-list">
-              {#each todayExercises as exercise, index (exercise.id)}
-                <article class:completed={todayCompleted.has(exercise.id)} class:expanded={expanded.has(exercise.id)} class="exercise-row">
+              {#each orderedTodayExercises as exercise (exercise.id)}
+                <article
+                  class:completed={todayCompleted.has(exercise.id)}
+                  class:expanded={expanded.has(exercise.id)}
+                  class="exercise-row"
+                  animate:flip={{ duration: 190 }}
+                >
                   <div class="exercise-row-main">
                     <button
                       class="completion-toggle"

@@ -75,6 +75,24 @@ export function toggleHistoryExercise(history: TrainingHistory, dateKey: string,
   return next;
 }
 
+export function orderExercisesByCompletion<T extends { id: string }>(exercises: readonly T[], completedIds: readonly string[]): T[] {
+  const byId = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const completedSet = new Set(completedIds);
+  const pending = exercises.filter((exercise) => !completedSet.has(exercise.id));
+  const completed: T[] = [];
+  const added = new Set<string>();
+
+  for (const id of completedIds) {
+    const exercise = byId.get(id);
+    if (exercise && !added.has(id)) {
+      completed.push(exercise);
+      added.add(id);
+    }
+  }
+
+  return [...pending, ...completed];
+}
+
 export function normaliseTrainingHistory(value: unknown): TrainingHistory {
   if (!isTrainingHistory(value)) return {};
   return Object.fromEntries(Object.entries(value).map(([date, exerciseIds]) => [date, [...new Set(exerciseIds)]]));

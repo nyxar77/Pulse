@@ -6,6 +6,7 @@ import {
   moveItem,
   normaliseWeekSchedule,
   normaliseWeight,
+  orderExercisesByCompletion,
   parseWeight,
   reorderItems,
   stepWeight,
@@ -88,6 +89,24 @@ describe("weekly schedule", () => {
     });
     expect(original).toEqual({ "2026-08-03": ["press"] });
     expect(toggleHistoryExercise(completed, "2026-08-04", "row")).toEqual(original);
+  });
+
+  test("moves completed exercises to the end in completion order", () => {
+    const plan = [
+      { id: "press", name: "Press" },
+      { id: "row", name: "Row" },
+      { id: "curl", name: "Curl" },
+    ];
+
+    let completionHistory = toggleHistoryExercise({}, "2026-08-04", "curl");
+    completionHistory = toggleHistoryExercise(completionHistory, "2026-08-04", "press");
+    expect(completionHistory["2026-08-04"]).toEqual(["curl", "press"]);
+    expect(orderExercisesByCompletion(plan, completionHistory["2026-08-04"]).map(({ id }) => id)).toEqual(["row", "curl", "press"]);
+
+    completionHistory = toggleHistoryExercise(completionHistory, "2026-08-04", "press");
+    expect(orderExercisesByCompletion(plan, completionHistory["2026-08-04"]).map(({ id }) => id)).toEqual(["press", "row", "curl"]);
+    expect(orderExercisesByCompletion(plan, []).map(({ id }) => id)).toEqual(["press", "row", "curl"]);
+    expect(plan.map(({ id }) => id)).toEqual(["press", "row", "curl"]);
   });
 });
 
