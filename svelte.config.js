@@ -1,5 +1,5 @@
-import adapter from "@sveltejs/adapter-static";
 import { readFileSync } from "node:fs";
+import adapter from "@sveltejs/adapter-static";
 
 const packageVersion = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
