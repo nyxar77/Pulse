@@ -165,4 +165,11 @@ describe("ledger imports", () => {
     expect(isLedgerExport(ledger({ library: [] }))).toBeFalse();
     expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [{ ...exercise, name: "Different definition" }] } } }))).toBeFalse();
   });
+
+  test("rejects malformed metadata and unknown workout plans", () => {
+    expect(isLedgerExport(ledger({ exportedAt: "not-a-date" }))).toBeFalse();
+    expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [], unknown: [] } } }))).toBeFalse();
+    expect(isLedgerExport(ledger({ library: [{ ...exercise, id: "   " }] }))).toBeFalse();
+    expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [{ ...exercise, sets: 2.5 }] } } }))).toBeFalse();
+  });
 });

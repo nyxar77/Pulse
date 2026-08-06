@@ -156,6 +156,8 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
     !isRecord(value) ||
     value.app !== "pulse" ||
     (value.version !== 1 && value.version !== 2 && value.version !== 3) ||
+    typeof value.exportedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.exportedAt)) ||
     !isRecord(value.settings) ||
     !isRecord(value.programme)
   )
@@ -170,6 +172,7 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
     return false;
   const ids = days.map((day) => (day as TrainingDay).id);
   if (new Set(ids).size !== ids.length) return false;
+  if (Object.keys(workouts).some((id) => !ids.includes(id))) return false;
   if (!ids.every((id) => Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise))) return false;
   if (value.version === 3) {
     if (!isWeekSchedule(value.programme.schedule, ids) || !isTrainingHistory(value.history)) return false;
@@ -219,13 +222,14 @@ export function isWorkoutExercise(value: unknown): value is WorkoutExercise {
   const record = value as unknown as Record<string, unknown>;
   const stringFields = ["reps", "load", "rest", "note"];
   if (!stringFields.every((field) => typeof record[field] === "string")) return false;
-  return typeof record.sets === "number" && Number.isFinite(record.sets) && record.sets >= 1 && typeof record.completed === "boolean";
+  return typeof record.sets === "number" && Number.isInteger(record.sets) && record.sets >= 1 && typeof record.completed === "boolean";
 }
 
 export function isExercise(value: unknown): value is Exercise {
   if (!isRecord(value)) return false;
   const stringFields = ["id", "name", "equipment", "guideUrl", "description"];
   if (!stringFields.every((field) => typeof value[field] === "string")) return false;
+  if (["id", "name", "equipment"].some((field) => !(value[field] as string).trim())) return false;
   if (!Array.isArray(value.muscles) || !value.muscles.every((muscle) => typeof muscle === "string")) return false;
   if (value.tags !== undefined && (!Array.isArray(value.tags) || !value.tags.every((tag) => typeof tag === "string"))) return false;
   if (value.imageUrl !== undefined && typeof value.imageUrl !== "string") return false;
