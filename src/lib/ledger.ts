@@ -173,8 +173,32 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
   if (!ids.every((id) => Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise))) return false;
   if (value.version === 3) {
     if (!isWeekSchedule(value.programme.schedule, ids) || !isTrainingHistory(value.history)) return false;
+    if (!Array.isArray(value.library) || !isExerciseLibrary(value.library)) return false;
+    const libraryById = new Map(value.library.map((exercise) => [exercise.id, exercise]));
+    if (!ids.every((dayId) => (workouts[dayId] as WorkoutExercise[]).every((workoutExercise) => {
+      const definition = libraryById.get(workoutExercise.id);
+      return definition !== undefined && sameExerciseDefinition(definition, workoutExercise);
+    }))) return false;
   }
-  return value.library === undefined || (Array.isArray(value.library) && value.library.every(isExercise));
+  return value.library === undefined || (Array.isArray(value.library) && isExerciseLibrary(value.library));
+}
+
+function isExerciseLibrary(value: unknown[]): value is Exercise[] {
+  const exercises = value;
+  return exercises.every(isExercise) && new Set(exercises.map((exercise) => exercise.id)).size === exercises.length;
+}
+
+function sameExerciseDefinition(left: Exercise, right: Exercise): boolean {
+  return left.id === right.id &&
+    left.name === right.name &&
+    JSON.stringify(left.muscles) === JSON.stringify(right.muscles) &&
+    JSON.stringify(left.tags ?? []) === JSON.stringify(right.tags ?? []) &&
+    left.equipment === right.equipment &&
+    left.guideUrl === right.guideUrl &&
+    left.imageUrl === right.imageUrl &&
+    left.description === right.description &&
+    left.custom === right.custom &&
+    left.archived === right.archived;
 }
 
 function isWeekSchedule(value: unknown, dayIds: string[]): value is WeekSchedule {

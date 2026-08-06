@@ -160,4 +160,9 @@ describe("ledger imports", () => {
     ).toBeFalse();
     expect(isLedgerExport(ledger({ history: { yesterday: ["press"] } }))).toBeFalse();
   });
+
+  test("requires every v3 workout exercise to exist in the library", () => {
+    expect(isLedgerExport(ledger({ library: [] }))).toBeFalse();
+    expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [{ ...exercise, name: "Different definition" }] } } }))).toBeFalse();
+  });
 });

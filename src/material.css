@@ -486,7 +486,7 @@ md-fab {
 .vault-filter-options button.active {
   color: var(--md-sys-color-on-primary-container);
   border-color: transparent;
-  background: var(--md-sys-color-primary-container);
+  background: color-mix(in srgb, var(--accent) 25%, var(--surface));
 }
 
 .flavour-preview {
@@ -494,20 +494,17 @@ md-fab {
   height: 14px;
   border-radius: 50%;
   background: #11111b;
-  box-shadow: inset 0 0 0 4px #cba6f7;
+  box-shadow: inset 0 0 0 4px var(--accent);
 }
 
 .flavour-preview.macchiato {
   background: #181926;
-  box-shadow: inset 0 0 0 4px #c6a0f6;
 }
 .flavour-preview.frappe {
   background: #303446;
-  box-shadow: inset 0 0 0 4px #ca9ee6;
 }
 .flavour-preview.latte {
   background: #eff1f5;
-  box-shadow: inset 0 0 0 4px #8839ef;
 }
 
 .accent-options > div {
@@ -609,6 +606,10 @@ md-fab {
 .transfer-message.transfer-error,
 .exercise-form-error {
   color: var(--md-sys-color-error);
+}
+
+.app[data-accent="red"] .transfer-message.transfer-error {
+  color: var(--peach);
 }
 
 .app-navigation {
