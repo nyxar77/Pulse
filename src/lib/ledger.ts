@@ -156,6 +156,8 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
     !isRecord(value) ||
     value.app !== "pulse" ||
     (value.version !== 1 && value.version !== 2 && value.version !== 3) ||
+    typeof value.exportedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.exportedAt)) ||
     !isRecord(value.settings) ||
     !isRecord(value.programme)
   )
@@ -170,11 +172,36 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
     return false;
   const ids = days.map((day) => (day as TrainingDay).id);
   if (new Set(ids).size !== ids.length) return false;
+  if (Object.keys(workouts).some((id) => !ids.includes(id))) return false;
   if (!ids.every((id) => Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise))) return false;
   if (value.version === 3) {
     if (!isWeekSchedule(value.programme.schedule, ids) || !isTrainingHistory(value.history)) return false;
+    if (!Array.isArray(value.library) || !isExerciseLibrary(value.library)) return false;
+    const libraryById = new Map(value.library.map((exercise) => [exercise.id, exercise]));
+    if (!ids.every((dayId) => (workouts[dayId] as WorkoutExercise[]).every((workoutExercise) => {
+      const definition = libraryById.get(workoutExercise.id);
+      return definition !== undefined && sameExerciseDefinition(definition, workoutExercise);
+    }))) return false;
   }
-  return value.library === undefined || (Array.isArray(value.library) && value.library.every(isExercise));
+  return value.library === undefined || (Array.isArray(value.library) && isExerciseLibrary(value.library));
+}
+
+function isExerciseLibrary(value: unknown[]): value is Exercise[] {
+  const exercises = value;
+  return exercises.every(isExercise) && new Set(exercises.map((exercise) => exercise.id)).size === exercises.length;
+}
+
+function sameExerciseDefinition(left: Exercise, right: Exercise): boolean {
+  return left.id === right.id &&
+    left.name === right.name &&
+    JSON.stringify(left.muscles) === JSON.stringify(right.muscles) &&
+    JSON.stringify(left.tags ?? []) === JSON.stringify(right.tags ?? []) &&
+    left.equipment === right.equipment &&
+    left.guideUrl === right.guideUrl &&
+    left.imageUrl === right.imageUrl &&
+    left.description === right.description &&
+    left.custom === right.custom &&
+    left.archived === right.archived;
 }
 
 function isWeekSchedule(value: unknown, dayIds: string[]): value is WeekSchedule {
@@ -195,13 +222,14 @@ export function isWorkoutExercise(value: unknown): value is WorkoutExercise {
   const record = value as unknown as Record<string, unknown>;
   const stringFields = ["reps", "load", "rest", "note"];
   if (!stringFields.every((field) => typeof record[field] === "string")) return false;
-  return typeof record.sets === "number" && Number.isFinite(record.sets) && record.sets >= 1 && typeof record.completed === "boolean";
+  return typeof record.sets === "number" && Number.isInteger(record.sets) && record.sets >= 1 && typeof record.completed === "boolean";
 }
 
 export function isExercise(value: unknown): value is Exercise {
   if (!isRecord(value)) return false;
   const stringFields = ["id", "name", "equipment", "guideUrl", "description"];
   if (!stringFields.every((field) => typeof value[field] === "string")) return false;
+  if (["id", "name", "equipment"].some((field) => !(value[field] as string).trim())) return false;
   if (!Array.isArray(value.muscles) || !value.muscles.every((muscle) => typeof muscle === "string")) return false;
   if (value.tags !== undefined && (!Array.isArray(value.tags) || !value.tags.every((tag) => typeof tag === "string"))) return false;
   if (value.imageUrl !== undefined && typeof value.imageUrl !== "string") return false;

@@ -113,6 +113,7 @@
   let importInput: HTMLInputElement;
   let pendingImport: LedgerExport | null = null;
   let transferMessage = "";
+  let transferError = false;
   let addMovementButton: HTMLElement | undefined;
   let vaultCloseButton: HTMLButtonElement | undefined;
   let vaultElement: HTMLDivElement | undefined;
@@ -388,6 +389,8 @@
 
   function deleteExerciseDefinition(id: string) {
     savedExercises = savedExercises.filter((exercise) => exercise.id !== id);
+    dayExercises = dayExercises.filter((exercise) => exercise.id !== id);
+    workouts = Object.fromEntries(Object.entries(workouts).map(([dayId, exercises]) => [dayId, exercises.filter((exercise) => exercise.id !== id)]));
     deleteExerciseCandidateId = null;
     exerciseEditorOpen = false;
     editingExerciseId = null;
@@ -571,12 +574,18 @@
   }
 
   async function exportLedger() {
+    const exportWorkouts = Object.fromEntries(
+      Object.entries(savedWorkouts).map(([dayId, exercises]) => [
+        dayId,
+        exercises.filter((exercise) => savedExercises.some((definition) => definition.id === exercise.id)),
+      ]),
+    );
     const payload: LedgerExport = {
       app: "pulse",
       version: 3,
       exportedAt: new Date().toISOString(),
       settings: { theme, accent },
-      programme: { days, workouts: savedWorkouts, schedule },
+      programme: { days, workouts: exportWorkouts, schedule },
       library: savedExercises,
       history,
     };
@@ -584,10 +593,12 @@
     const filename = `pulse-ledger-${new Date().toISOString().slice(0, 10)}.json`;
     try {
       if (await shareLedgerFile(filename, contents)) {
+        transferError = false;
         transferMessage = "Opened your device share sheet.";
         return;
       }
     } catch {
+      transferError = false;
       transferMessage = "The export was cancelled.";
       return;
     }
@@ -600,6 +611,7 @@
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     transferMessage = "Exported a complete copy.";
+    transferError = false;
   }
 
   async function readImport(event: Event) {
@@ -611,9 +623,11 @@
       if (!isLedgerExport(candidate)) throw new Error("This is not a valid Pulse ledger file.");
       pendingImport = candidate;
       transferMessage = "";
+      transferError = false;
     } catch (error) {
       pendingImport = null;
       transferMessage = error instanceof Error ? error.message : "Could not read that file.";
+      transferError = true;
     } finally {
       input.value = "";
     }
@@ -632,6 +646,7 @@
     history = normaliseTrainingHistory(imported.history);
     pendingImport = null;
     transferMessage = "Imported your weekly programme.";
+    transferError = false;
   }
 
   async function openLibrary(mode: LibraryMode) {
@@ -1323,7 +1338,7 @@
               </div>
             {/if}
             {#if transferMessage}<p
-                class:transfer-error={transferMessage.includes("not valid") || transferMessage.includes("Could not")}
+                class:transfer-error={transferError}
                 class="transfer-message"
               >
                 {transferMessage}
