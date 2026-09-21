@@ -1,0 +1,1 @@
+Redesigned the mobile interface with smoother navigation, exercise controls, and reorder animations. Added theme-matched launcher icons, private scheduled backups, and daily completion tracking that stays on the device. Fixed the unwanted Android title bar and several drawer and gesture issues.
