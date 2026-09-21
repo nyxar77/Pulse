@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  copyWorkout,
   createWeekSchedule,
   isLedgerExport,
   localDateKey,
@@ -10,7 +11,6 @@ import {
   parseWeight,
   reorderItems,
   stepWeight,
-  toggleHistoryExercise,
   weekIndex,
   weightInputValue,
   weightLabel,
@@ -28,7 +28,6 @@ const exercise = {
   load: "50",
   rest: "90 sec",
   note: "",
-  completed: false,
 };
 
 function ledger(overrides: Record<string, unknown> = {}) {
@@ -42,7 +41,6 @@ function ledger(overrides: Record<string, unknown> = {}) {
       workouts: { "day-1": [exercise] },
       schedule: ["day-1", null, null, null, null, null, null],
     },
-    history: {},
     library: [exercise],
     ...overrides,
   };
@@ -76,19 +74,21 @@ describe("weekly schedule", () => {
       { id: "a", name: "A" },
       { id: "b", name: "B" },
     ];
-    expect(createWeekSchedule(days, 6)).toEqual(["b", null, null, null, null, null, "a"]);
-    expect(normaliseWeekSchedule(["missing", "a", null, null, null, null, null], ["a"])).toEqual([null, "a", null, null, null, null, null]);
-  });
-
-  test("tracks completion by calendar date without mutating prior history", () => {
-    const original = { "2026-08-03": ["press"] };
-    const completed = toggleHistoryExercise(original, "2026-08-04", "row");
-    expect(completed).toEqual({
-      "2026-08-03": ["press"],
-      "2026-08-04": ["row"],
-    });
-    expect(original).toEqual({ "2026-08-03": ["press"] });
-    expect(toggleHistoryExercise(completed, "2026-08-04", "row")).toEqual(original);
+    expect(createWeekSchedule(days, 6)).toEqual([
+      "b",
+      null,
+      null,
+      null,
+      null,
+      null,
+      "a",
+    ]);
+    expect(
+      normaliseWeekSchedule(
+        ["missing", "a", null, null, null, null, null],
+        ["a"],
+      ),
+    ).toEqual([null, "a", null, null, null, null, null]);
   });
 
   test("moves completed exercises to the end in completion order", () => {
@@ -98,19 +98,37 @@ describe("weekly schedule", () => {
       { id: "curl", name: "Curl" },
     ];
 
-    let completionHistory = toggleHistoryExercise({}, "2026-08-04", "curl");
-    completionHistory = toggleHistoryExercise(completionHistory, "2026-08-04", "press");
-    expect(completionHistory["2026-08-04"]).toEqual(["curl", "press"]);
-    expect(orderExercisesByCompletion(plan, completionHistory["2026-08-04"]).map(({ id }) => id)).toEqual(["row", "curl", "press"]);
+    expect(
+      orderExercisesByCompletion(plan, ["curl", "press"]).map(({ id }) => id),
+    ).toEqual(["row", "curl", "press"]);
 
-    completionHistory = toggleHistoryExercise(completionHistory, "2026-08-04", "press");
-    expect(orderExercisesByCompletion(plan, completionHistory["2026-08-04"]).map(({ id }) => id)).toEqual(["press", "row", "curl"]);
-    expect(orderExercisesByCompletion(plan, []).map(({ id }) => id)).toEqual(["press", "row", "curl"]);
+    expect(
+      orderExercisesByCompletion(plan, ["curl"]).map(({ id }) => id),
+    ).toEqual(["press", "row", "curl"]);
+    expect(orderExercisesByCompletion(plan, []).map(({ id }) => id)).toEqual([
+      "press",
+      "row",
+      "curl",
+    ]);
     expect(plan.map(({ id }) => id)).toEqual(["press", "row", "curl"]);
   });
 });
 
 describe("programme ordering", () => {
+  test("copies a workout without sharing exercise metadata", () => {
+    const original = [
+      { ...exercise, muscles: ["Chest"], tags: ["Push"], completed: true },
+    ];
+    const copied = copyWorkout(original);
+
+    const { completed: _legacyCompletion, ...persistentExercise } = original[0];
+    expect(copied).toEqual([persistentExercise]);
+    expect(copied).not.toBe(original);
+    expect(copied[0]).not.toBe(original[0]);
+    expect(copied[0].muscles).not.toBe(original[0].muscles);
+    expect(copied[0].tags).not.toBe(original[0].tags);
+  });
+
   test("supports direct touch reordering without mutating the previous list", () => {
     const original = ["A", "B", "C"];
     expect(reorderItems(original, 0, 2)).toEqual(["B", "C", "A"]);
@@ -130,7 +148,9 @@ describe("ledger imports", () => {
   });
 
   test("rejects missing days, duplicate ids, and unsafe media links", () => {
-    expect(isLedgerExport(ledger({ programme: { days: [], workouts: {} } }))).toBeFalse();
+    expect(
+      isLedgerExport(ledger({ programme: { days: [], workouts: {} } })),
+    ).toBeFalse();
     expect(
       isLedgerExport(
         ledger({
@@ -144,7 +164,11 @@ describe("ledger imports", () => {
         }),
       ),
     ).toBeFalse();
-    expect(isLedgerExport(ledger({ library: [{ ...exercise, guideUrl: "javascript:alert(1)" }] }))).toBeFalse();
+    expect(
+      isLedgerExport(
+        ledger({ library: [{ ...exercise, guideUrl: "javascript:alert(1)" }] }),
+      ),
+    ).toBeFalse();
     expect(
       isLedgerExport(
         ledger({
@@ -158,18 +182,48 @@ describe("ledger imports", () => {
         }),
       ),
     ).toBeFalse();
-    expect(isLedgerExport(ledger({ history: { yesterday: ["press"] } }))).toBeFalse();
   });
 
   test("requires every v3 workout exercise to exist in the library", () => {
     expect(isLedgerExport(ledger({ library: [] }))).toBeFalse();
-    expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [{ ...exercise, name: "Different definition" }] } } }))).toBeFalse();
+    expect(
+      isLedgerExport(
+        ledger({
+          programme: {
+            ...ledger().programme,
+            workouts: {
+              "day-1": [{ ...exercise, name: "Different definition" }],
+            },
+          },
+        }),
+      ),
+    ).toBeFalse();
   });
 
   test("rejects malformed metadata and unknown workout plans", () => {
     expect(isLedgerExport(ledger({ exportedAt: "not-a-date" }))).toBeFalse();
-    expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [], unknown: [] } } }))).toBeFalse();
-    expect(isLedgerExport(ledger({ library: [{ ...exercise, id: "   " }] }))).toBeFalse();
-    expect(isLedgerExport(ledger({ programme: { ...ledger().programme, workouts: { "day-1": [{ ...exercise, sets: 2.5 }] } } }))).toBeFalse();
+    expect(
+      isLedgerExport(
+        ledger({
+          programme: {
+            ...ledger().programme,
+            workouts: { "day-1": [], unknown: [] },
+          },
+        }),
+      ),
+    ).toBeFalse();
+    expect(
+      isLedgerExport(ledger({ library: [{ ...exercise, id: "   " }] })),
+    ).toBeFalse();
+    expect(
+      isLedgerExport(
+        ledger({
+          programme: {
+            ...ledger().programme,
+            workouts: { "day-1": [{ ...exercise, sets: 2.5 }] },
+          },
+        }),
+      ),
+    ).toBeFalse();
   });
 });

@@ -1,23 +1,35 @@
 <script lang="ts">
   import { browser } from "$app/environment";
   import AutocompleteInput from "$lib/components/AutocompleteInput.svelte";
+  import PulseMark from "$lib/components/PulseMark.svelte";
   import TagCombobox from "$lib/components/TagCombobox.svelte";
+  import {
+    defaultAutoBackupPreferences,
+    formatBackupDelay,
+    maximumBackupDelayMinutes,
+    minimumBackupDelayMinutes,
+    normaliseAutoBackupPreferences,
+    normaliseBackupDelay,
+    normalisePendingBackup,
+    shouldRetryBackup,
+    type AutoBackupPreferences,
+    type PendingBackup,
+  } from "$lib/backup";
   import { exerciseLibrary, starterWorkout } from "$lib/data";
   import {
     accents,
+    copyWorkout,
     isExercise,
     isLedgerExport,
     isOptionalWebUrl,
     localDateKey,
     moveItem,
-    normaliseTrainingHistory,
     normaliseWeight,
     orderExercisesByCompletion,
     parseWeight,
     reorderItems,
     stepWeight,
     themes,
-    toggleHistoryExercise,
     weekIndex,
     weightInputValue,
     weightLabel,
@@ -26,12 +38,31 @@
     type LedgerExport,
     type Theme,
   } from "$lib/ledger";
-  import { applyNativeTheme, isNativeApp, shareLedgerFile } from "$lib/native";
+  import {
+    applyNativeAppearance,
+    chooseScopedBackupFolder,
+    clearScopedBackupFolder,
+    getScopedBackupStatus,
+    isNativeApp,
+    shareLedgerFile,
+    writeScopedBackup,
+  } from "$lib/native";
   import { equipmentOptions, muscleOptions } from "$lib/options";
   import { sheetDragProgress, shouldDismissSheet } from "$lib/sheet";
-  import { loadLedgerData, saveLedgerData } from "$lib/storage";
-  import type { Exercise, TrainingDay, TrainingHistory, WeekSchedule, WorkoutExercise } from "$lib/types";
-  import Activity from "lucide-svelte/icons/activity";
+  import {
+    clearPendingBackupData,
+    loadLedgerData,
+    loadPendingBackupData,
+    saveLedgerData,
+    savePendingBackupData,
+    type StoredLedger,
+  } from "$lib/storage";
+  import type {
+    Exercise,
+    TrainingDay,
+    WeekSchedule,
+    WorkoutExercise,
+  } from "$lib/types";
   import Archive from "lucide-svelte/icons/archive";
   import ArchiveRestore from "lucide-svelte/icons/archive-restore";
   import ArrowDown from "lucide-svelte/icons/arrow-down";
@@ -46,6 +77,8 @@
   import Dumbbell from "lucide-svelte/icons/dumbbell";
   import ExternalLink from "lucide-svelte/icons/external-link";
   import FileJson from "lucide-svelte/icons/file-json";
+  import FolderLock from "lucide-svelte/icons/folder-lock";
+  import FolderOpen from "lucide-svelte/icons/folder-open";
   import GripVertical from "lucide-svelte/icons/grip-vertical";
   import LibraryBig from "lucide-svelte/icons/library-big";
   import ListFilter from "lucide-svelte/icons/list-filter";
@@ -55,13 +88,22 @@
   import Save from "lucide-svelte/icons/save";
   import Search from "lucide-svelte/icons/search";
   import Settings from "lucide-svelte/icons/settings";
+  import ShieldCheck from "lucide-svelte/icons/shield-check";
   import Trash2 from "lucide-svelte/icons/trash-2";
   import Upload from "lucide-svelte/icons/upload";
   import X from "lucide-svelte/icons/x";
   import { flip } from "svelte/animate";
   import { onMount, tick } from "svelte";
+  import { slide } from "svelte/transition";
 
-  const suggestedGroups = ["Chest", "Back", "Shoulders", "Arms", "Legs", "Core"];
+  const suggestedGroups = [
+    "Chest",
+    "Back",
+    "Shoulders",
+    "Arms",
+    "Legs",
+    "Core",
+  ];
   type ExerciseDraft = {
     name: string;
     muscles: string[];
@@ -76,7 +118,12 @@
   type ViewTransitionDocument = Document & {
     startViewTransition?: (update: () => void | Promise<void>) => void;
   };
-  const mobileVaultQuery = "(max-width: 600px), (max-width: 900px) and (max-height: 520px) and (orientation: landscape)";
+  const mobileVaultQuery =
+    "(max-width: 600px), (max-width: 900px) and (max-height: 520px) and (orientation: landscape)";
+  const autoBackupPreferencesKey = "pulse-auto-backup-v1";
+  const legacyPendingBackupKey = "pulse-auto-backup-pending-v1";
+  const todayCompletionCacheKey = "pulse-today-completion-v1";
+  const automaticBackupFilename = "pulse-ledger.json";
   const initialDate = new Date();
   const initialWeekday = weekIndex(initialDate);
   let days: TrainingDay[] = createFixedWeekDays();
@@ -85,8 +132,9 @@
   workouts[activeDayId] = starterWorkout;
   let dayExercises: WorkoutExercise[] = starterWorkout;
   let schedule: WeekSchedule = days.map((day) => day.id);
-  let history: TrainingHistory = {};
   let currentDate: Date | null = initialDate;
+  let completionDateKey = localDateKey(initialDate);
+  let todayCompletionOrder: string[] = [];
   let activeView: AppView = "today";
   let selectedWeekday = initialWeekday;
   let weekPickerOpen = false;
@@ -103,6 +151,10 @@
   let exerciseFormError = "";
   let deleteExerciseCandidateId: string | null = null;
   let reorderMode = false;
+  let reorderHintActive = false;
+  let copyDayOpen = false;
+  let clearDayPending = false;
+  let programmeMessage = "";
   let libraryOpen = false;
   let libraryMode: LibraryMode = "manage";
   let theme: Theme = "mocha";
@@ -110,6 +162,19 @@
   let expanded = new Set<string>();
   let hydrated = false;
   let draggedExerciseId: string | null = null;
+  let dragHandle: HTMLElement | null = null;
+  let dragGhost: HTMLElement | null = null;
+  let dragOriginExercises: WorkoutExercise[] | null = null;
+  let dragPointerOffsetX = 0;
+  let dragPointerOffsetY = 0;
+  let dragX = 0;
+  let dragY = 0;
+  let viewSwipePointerId: number | null = null;
+  let viewSwipeStartX = 0;
+  let viewSwipeStartY = 0;
+  let viewSwipeStartedAt = 0;
+  let viewSwipeHorizontal = false;
+  let suppressClickAfterSwipe = false;
   let importInput: HTMLInputElement;
   let pendingImport: LedgerExport | null = null;
   let transferMessage = "";
@@ -131,33 +196,89 @@
   let vaultDragSheetHeight = 0;
   let vaultDragMoved = false;
   let vaultRenderFrame: number | null = null;
+  let autoBackup: AutoBackupPreferences = { ...defaultAutoBackupPreferences };
+  let backupFolderSelected = false;
+  let backupBusy = false;
+  let backupTimer: number | null = null;
+  let lastBackupFingerprint = "";
+  let backupWriteQueue = Promise.resolve();
+  let queuedBackup: { pending: PendingBackup; generation: number } | null =
+    null;
+  let backupDrainRunning = false;
+  let backupRevision = 0;
+  let backupGeneration = 0;
+  let backupReady = false;
+  let backupSuspended = false;
+  let nativePlatform = false;
 
-  $: availableGroups = ["All", ...new Set([...suggestedGroups, ...savedExercises.flatMap((exercise) => [...exercise.muscles, ...(exercise.tags ?? [])])])];
-  $: archivedCount = savedExercises.filter((exercise) => exercise.archived).length;
+  $: availableGroups = [
+    "All",
+    ...new Set([
+      ...suggestedGroups,
+      ...savedExercises.flatMap((exercise) => [
+        ...exercise.muscles,
+        ...(exercise.tags ?? []),
+      ]),
+    ]),
+  ];
+  $: archivedCount = savedExercises.filter(
+    (exercise) => exercise.archived,
+  ).length;
   $: visibleExercises = savedExercises.filter((exercise) => {
     const query = search.trim().toLowerCase();
-    const searchable = [exercise.name, exercise.equipment, ...exercise.muscles, ...(exercise.tags ?? [])].join(" ").toLowerCase();
+    const searchable = [
+      exercise.name,
+      exercise.equipment,
+      ...exercise.muscles,
+      ...(exercise.tags ?? []),
+    ]
+      .join(" ")
+      .toLowerCase();
     const matchesSearch = !query || searchable.includes(query);
-    const matchesMuscle = selectedMuscle === "All" || exercise.muscles.includes(selectedMuscle) || exercise.tags?.includes(selectedMuscle);
-    return matchesSearch && matchesMuscle && Boolean(exercise.archived) === showArchived;
+    const matchesMuscle =
+      selectedMuscle === "All" ||
+      exercise.muscles.includes(selectedMuscle) ||
+      exercise.tags?.includes(selectedMuscle);
+    return (
+      matchesSearch &&
+      matchesMuscle &&
+      Boolean(exercise.archived) === showArchived
+    );
   });
-  $: editingExercise = editingExerciseId ? savedExercises.find((exercise) => exercise.id === editingExerciseId) : undefined;
-  $: vaultAddVisible = libraryMode === "manage" && !exerciseEditorOpen && !vaultFiltersOpen && !libraryClosing;
-  $: activeDayName = days.find((day) => day.id === activeDayId)?.name ?? "Untitled day";
+  $: editingExercise = editingExerciseId
+    ? savedExercises.find((exercise) => exercise.id === editingExerciseId)
+    : undefined;
+  $: vaultAddVisible =
+    libraryMode === "manage" &&
+    !exerciseEditorOpen &&
+    !vaultFiltersOpen &&
+    !libraryClosing;
+  $: activeDayName =
+    days.find((day) => day.id === activeDayId)?.name ?? "Untitled day";
   $: savedWorkouts = { ...workouts, [activeDayId]: dayExercises };
   $: todayIndex = currentDate ? weekIndex(currentDate) : 0;
   $: todayKey = currentDate ? localDateKey(currentDate) : "";
   $: todayPlanId = schedule[todayIndex] ?? null;
-  $: todayPlan = todayPlanId ? (days.find((day) => day.id === todayPlanId) ?? null) : null;
-  $: todayExercises = todayPlanId ? (todayPlanId === activeDayId ? dayExercises : (workouts[todayPlanId] ?? [])) : [];
-  $: todayCompletionOrder = todayKey ? (history[todayKey] ?? []) : [];
+  $: todayPlan = todayPlanId
+    ? (days.find((day) => day.id === todayPlanId) ?? null)
+    : null;
+  $: todayExercises = todayPlanId
+    ? todayPlanId === activeDayId
+      ? dayExercises
+      : (workouts[todayPlanId] ?? [])
+    : [];
   $: todayCompleted = new Set(todayCompletionOrder);
-  $: orderedTodayExercises = orderExercisesByCompletion(todayExercises, todayCompletionOrder);
-  $: completedTodayCount = todayExercises.filter((exercise) => todayCompleted.has(exercise.id)).length;
-  $: if (browser) void applyNativeTheme(theme);
+  $: orderedTodayExercises = orderExercisesByCompletion(
+    todayExercises,
+    todayCompletionOrder,
+  );
+  $: completedTodayCount = todayExercises.filter((exercise) =>
+    todayCompleted.has(exercise.id),
+  ).length;
+  $: if (browser) void applyNativeAppearance(theme, accent);
   $: if (browser) void applyBrandFavicon(theme, accent);
   $: if (browser && hydrated) {
-    saveLedgerData({
+    const ledger: StoredLedger = {
       workouts: savedWorkouts,
       days,
       activeDayId,
@@ -165,33 +286,58 @@
       accent,
       exercises: savedExercises,
       schedule,
-      history,
-    });
+    };
+    saveLedgerData(ledger);
+    if (backupReady) scheduleAutomaticBackup(ledger);
   }
   $: if (browser) document.body.classList.toggle("has-overlay", libraryOpen);
 
   onMount(() => {
-    void Promise.all([import("@material/web/button/filled-tonal-button.js"), import("@material/web/button/text-button.js")]);
+    void Promise.all([
+      import("@material/web/button/filled-tonal-button.js"),
+      import("@material/web/button/text-button.js"),
+    ]);
     currentDate = new Date();
     selectedWeekday = weekIndex(currentDate);
-    void hydrateLedger();
+    restoreTodayCompletion(currentDate);
+    nativePlatform = isNativeApp();
+    void initialiseApplication();
     const refreshDate = () => {
       const nextDate = new Date();
-      if (!currentDate || localDateKey(nextDate) !== localDateKey(currentDate)) currentDate = nextDate;
+      if (
+        !currentDate ||
+        localDateKey(nextDate) !== localDateKey(currentDate)
+      ) {
+        currentDate = nextDate;
+        completionDateKey = localDateKey(nextDate);
+        todayCompletionOrder = [];
+        clearTodayCompletion();
+      }
     };
     const dateRefreshTimer = window.setInterval(refreshDate, 60_000);
     document.addEventListener("visibilitychange", refreshDate);
     return () => {
       window.clearInterval(dateRefreshTimer);
       document.removeEventListener("visibilitychange", refreshDate);
+      if (backupTimer !== null) window.clearTimeout(backupTimer);
+      clearPointerReorder();
       document.body.classList.remove("is-reordering", "has-overlay");
     };
   });
+
+  async function initialiseApplication() {
+    await hydrateLedger();
+    await initialiseAutomaticBackup();
+    backupReady = true;
+    if (autoBackup.enabled && backupFolderSelected)
+      scheduleAutomaticBackup(currentStoredLedger());
+  }
 
   onMount(() => {
     if (!isNativeApp()) return;
 
     let removeBackListener: (() => Promise<void>) | undefined;
+    let removeStateListener: (() => Promise<void>) | undefined;
     void import("@capacitor/app").then(async ({ App }) => {
       const listener = await App.addListener("backButton", () => {
         if (exerciseEditorOpen) exerciseEditorOpen = false;
@@ -201,9 +347,19 @@
         else void App.minimizeApp();
       });
       removeBackListener = () => listener.remove();
+      const stateListener = await App.addListener(
+        "appStateChange",
+        ({ isActive }) => {
+          if (isActive) void resumePendingBackup();
+        },
+      );
+      removeStateListener = () => stateListener.remove();
     });
 
-    return () => void removeBackListener?.();
+    return () => {
+      void removeBackListener?.();
+      void removeStateListener?.();
+    };
   });
 
   async function hydrateLedger() {
@@ -220,11 +376,12 @@
           accent: Accent;
           exercises: Exercise[];
           schedule: WeekSchedule;
-          history: TrainingHistory;
         }>;
         if (parsed.theme && themes.includes(parsed.theme)) theme = parsed.theme;
-        if (parsed.accent && accents.includes(parsed.accent)) accent = parsed.accent;
-        if (parsed.exercises?.length) savedExercises = parsed.exercises.filter(isExercise);
+        if (parsed.accent && accents.includes(parsed.accent))
+          accent = parsed.accent;
+        if (parsed.exercises?.length)
+          savedExercises = parsed.exercises.filter(isExercise);
         const sourceDays = parsed.days?.length
           ? typeof parsed.days[0] === "object"
             ? (parsed.days as TrainingDay[])
@@ -235,12 +392,17 @@
           : [{ id: "legacy-0", name: "Workout" }];
         const sourceWorkouts =
           parsed.days?.length && typeof parsed.days[0] === "string"
-            ? Object.fromEntries((parsed.days as string[]).map((name, index) => [`legacy-${index}`, parsed.workouts?.[name] ?? []]))
+            ? Object.fromEntries(
+                (parsed.days as string[]).map((name, index) => [
+                  `legacy-${index}`,
+                  parsed.workouts?.[name] ?? [],
+                ]),
+              )
             : (parsed.workouts ?? { "legacy-0": parsed.dayExercises ?? [] });
         installWeeklyProgramme(sourceDays, sourceWorkouts);
-        history = normaliseTrainingHistory(parsed.history);
       } catch {}
     }
+    lastBackupFingerprint = ledgerFingerprint(currentStoredLedger());
     hydrated = true;
   }
 
@@ -248,22 +410,36 @@
     return weekdays.map((name, index) => ({ id: `weekday-${index}`, name }));
   }
 
-  function emptyWeekWorkouts(weekDays: TrainingDay[]): Record<string, WorkoutExercise[]> {
+  function emptyWeekWorkouts(
+    weekDays: TrainingDay[],
+  ): Record<string, WorkoutExercise[]> {
     return Object.fromEntries(weekDays.map((day) => [day.id, []]));
   }
 
-  function installWeeklyProgramme(sourceDays: TrainingDay[], sourceWorkouts: Record<string, WorkoutExercise[]>) {
+  function installWeeklyProgramme(
+    sourceDays: TrainingDay[],
+    sourceWorkouts: Record<string, WorkoutExercise[]>,
+  ) {
     const fixedDays = createFixedWeekDays();
     const nextWorkouts = emptyWeekWorkouts(fixedDays);
-    const alreadyFixed = fixedDays.every((day) => sourceDays.some((sourceDay) => sourceDay.id === day.id));
+    const alreadyFixed = fixedDays.every((day) =>
+      sourceDays.some((sourceDay) => sourceDay.id === day.id),
+    );
 
     if (alreadyFixed) {
-      for (const day of fixedDays) nextWorkouts[day.id] = [...(sourceWorkouts[day.id] ?? [])];
+      for (const day of fixedDays)
+        nextWorkouts[day.id] = copyWorkout(sourceWorkouts[day.id] ?? []);
     } else {
       sourceDays.slice(0, 7).forEach((sourceDay, offset) => {
-        const namedWeekday = weekdays.findIndex((weekday) => weekday.toLowerCase() === sourceDay.name.trim().toLowerCase());
-        const targetIndex = namedWeekday >= 0 ? namedWeekday : (initialWeekday + offset) % 7;
-        nextWorkouts[fixedDays[targetIndex].id] = [...(sourceWorkouts[sourceDay.id] ?? [])];
+        const namedWeekday = weekdays.findIndex(
+          (weekday) =>
+            weekday.toLowerCase() === sourceDay.name.trim().toLowerCase(),
+        );
+        const targetIndex =
+          namedWeekday >= 0 ? namedWeekday : (initialWeekday + offset) % 7;
+        nextWorkouts[fixedDays[targetIndex].id] = copyWorkout(
+          sourceWorkouts[sourceDay.id] ?? [],
+        );
       });
     }
 
@@ -336,7 +512,9 @@
       return;
     }
 
-    const existing = editingExerciseId ? savedExercises.find((exercise) => exercise.id === editingExerciseId) : undefined;
+    const existing = editingExerciseId
+      ? savedExercises.find((exercise) => exercise.id === editingExerciseId)
+      : undefined;
     const updated: Exercise = {
       id: existing?.id ?? `exercise-${Date.now()}`,
       name,
@@ -351,7 +529,9 @@
     };
 
     if (existing) {
-      savedExercises = savedExercises.map((exercise) => (exercise.id === existing.id ? updated : exercise));
+      savedExercises = savedExercises.map((exercise) =>
+        exercise.id === existing.id ? updated : exercise,
+      );
       updateExerciseReferences(updated);
     } else {
       savedExercises = [...savedExercises, updated];
@@ -377,11 +557,18 @@
           }
         : exercise;
     dayExercises = dayExercises.map(merge);
-    workouts = Object.fromEntries(Object.entries(workouts).map(([id, exercises]) => [id, exercises.map(merge)]));
+    workouts = Object.fromEntries(
+      Object.entries(workouts).map(([id, exercises]) => [
+        id,
+        exercises.map(merge),
+      ]),
+    );
   }
 
   function toggleExerciseArchive(exercise: Exercise) {
-    savedExercises = savedExercises.map((item) => (item.id === exercise.id ? { ...item, archived: !item.archived } : item));
+    savedExercises = savedExercises.map((item) =>
+      item.id === exercise.id ? { ...item, archived: !item.archived } : item,
+    );
     deleteExerciseCandidateId = null;
     exerciseEditorOpen = false;
     editingExerciseId = null;
@@ -390,7 +577,12 @@
   function deleteExerciseDefinition(id: string) {
     savedExercises = savedExercises.filter((exercise) => exercise.id !== id);
     dayExercises = dayExercises.filter((exercise) => exercise.id !== id);
-    workouts = Object.fromEntries(Object.entries(workouts).map(([dayId, exercises]) => [dayId, exercises.filter((exercise) => exercise.id !== id)]));
+    workouts = Object.fromEntries(
+      Object.entries(workouts).map(([dayId, exercises]) => [
+        dayId,
+        exercises.filter((exercise) => exercise.id !== id),
+      ]),
+    );
     deleteExerciseCandidateId = null;
     exerciseEditorOpen = false;
     editingExerciseId = null;
@@ -415,11 +607,46 @@
     editMode = !editMode;
     if (!editMode) {
       reorderMode = false;
+      reorderHintActive = false;
+      clearPointerReorder();
+      copyDayOpen = false;
+      clearDayPending = false;
     }
   }
 
+  function toggleReorderMode() {
+    reorderMode = !reorderMode;
+    reorderHintActive = reorderMode;
+    if (!reorderMode) clearPointerReorder();
+  }
+
+  function copyDayTo(targetDayId: string) {
+    const targetDay = days.find((day) => day.id === targetDayId);
+    if (!targetDay || targetDayId === activeDayId) return;
+    workouts = {
+      ...savedWorkouts,
+      [targetDayId]: copyWorkout(dayExercises),
+    };
+    copyDayOpen = false;
+    programmeMessage = `${activeDayName} copied to ${targetDay.name}.`;
+  }
+
+  function requestClearDay() {
+    if (!clearDayPending) {
+      clearDayPending = true;
+      copyDayOpen = false;
+      return;
+    }
+    dayExercises = [];
+    clearDayPending = false;
+    programmeMessage = `${activeDayName} cleared.`;
+  }
+
   function adjustSets(exercise: WorkoutExercise, delta: number) {
-    exercise.sets = Math.min(20, Math.max(1, Math.round(exercise.sets + delta)));
+    exercise.sets = Math.min(
+      20,
+      Math.max(1, Math.round(exercise.sets + delta)),
+    );
     touch();
   }
 
@@ -449,7 +676,6 @@
         load: "—",
         rest: "90 sec",
         note: "",
-        completed: false,
       },
     ];
   }
@@ -471,30 +697,218 @@
   }
 
   function startPointerReorder(event: PointerEvent, id: string) {
-    if (!reorderMode || event.button !== 0) return;
+    if (!reorderMode || event.button !== 0 || draggedExerciseId) return;
     event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    const movement = handle.closest<HTMLElement>(".movement");
+    const app = movement?.closest<HTMLElement>(".app");
+    if (!movement || !app) return;
+    const rect = movement.getBoundingClientRect();
+    const ghost = movement.cloneNode(true) as HTMLElement;
+    ghost.classList.remove("dragging", "hinting");
+    ghost.classList.add("movement-drag-ghost");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.height = `${rect.height}px`;
+    app.append(ghost);
+
+    reorderHintActive = false;
     draggedExerciseId = id;
     dragPointerId = event.pointerId;
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    dragHandle = handle;
+    dragGhost = ghost;
+    dragOriginExercises = [...dayExercises];
+    dragPointerOffsetX = event.clientX - rect.left;
+    dragPointerOffsetY = event.clientY - rect.top;
+    positionDragGhost(event.clientX, event.clientY);
+    handle.setPointerCapture(event.pointerId);
     document.body.classList.add("is-reordering");
+  }
+
+  function positionDragGhost(clientX: number, clientY: number) {
+    if (!dragGhost) return;
+    dragX = clientX - dragPointerOffsetX;
+    dragY = clientY - dragPointerOffsetY;
+    dragGhost.style.transform = `translate3d(${dragX}px, ${dragY}px, 0)`;
   }
 
   function handlePointerReorder(event: PointerEvent) {
     if (dragPointerId !== event.pointerId || !draggedExerciseId) return;
     event.preventDefault();
-    const destination = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-exercise-id]");
+    positionDragGhost(event.clientX, event.clientY);
+    const edge = 72;
+    if (event.clientY < edge) window.scrollBy(0, -10);
+    else if (event.clientY > window.innerHeight - edge) window.scrollBy(0, 10);
+    const destination = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-exercise-id]");
     const destinationId = destination?.dataset.exerciseId;
-    const sourceIndex = dayExercises.findIndex((exercise) => exercise.id === draggedExerciseId);
-    const destinationIndex = dayExercises.findIndex((exercise) => exercise.id === destinationId);
-    if (sourceIndex < 0 || destinationIndex < 0 || sourceIndex === destinationIndex) return;
+    const sourceIndex = dayExercises.findIndex(
+      (exercise) => exercise.id === draggedExerciseId,
+    );
+    const destinationIndex = dayExercises.findIndex(
+      (exercise) => exercise.id === destinationId,
+    );
+    if (
+      sourceIndex < 0 ||
+      destinationIndex < 0 ||
+      sourceIndex === destinationIndex
+    )
+      return;
     dayExercises = reorderItems(dayExercises, sourceIndex, destinationIndex);
   }
 
-  function stopPointerReorder(event: PointerEvent) {
+  async function stopPointerReorder(event: PointerEvent, cancelled = false) {
     if (dragPointerId !== event.pointerId) return;
+    const id = draggedExerciseId;
+    const ghost = dragGhost;
+    const releaseTarget = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>(".movement[data-exercise-id]");
+    const validDrop =
+      !cancelled &&
+      Boolean(
+        releaseTarget?.closest(".movement-list") &&
+        releaseTarget.dataset.exerciseId,
+      );
+    if (!validDrop && dragOriginExercises) dayExercises = dragOriginExercises;
+
+    dragPointerId = null;
+    if (dragHandle?.hasPointerCapture(event.pointerId))
+      dragHandle.releasePointerCapture(event.pointerId);
+    await tick();
+
+    const destination = id
+      ? document.querySelector<HTMLElement>(
+          `.movement-list .movement[data-exercise-id="${CSS.escape(id)}"]`,
+        )
+      : null;
+    if (ghost && destination) {
+      const rect = destination.getBoundingClientRect();
+      const animation = ghost.animate(
+        [
+          {
+            transform: `translate3d(${dragX}px, ${dragY}px, 0)`,
+            scale: "1.025",
+          },
+          {
+            transform: `translate3d(${rect.left}px, ${rect.top}px, 0)`,
+            scale: "1",
+          },
+        ],
+        {
+          duration: window.matchMedia("(prefers-reduced-motion: reduce)")
+            .matches
+            ? 0
+            : validDrop
+              ? 150
+              : 240,
+          easing: validDrop
+            ? "cubic-bezier(.2,.8,.2,1)"
+            : "cubic-bezier(.2,.9,.2,1)",
+          fill: "forwards",
+        },
+      );
+      try {
+        await animation.finished;
+      } catch {
+        // A cancelled animation still needs the same drag cleanup.
+      }
+    }
+    clearPointerReorder();
+  }
+
+  function clearPointerReorder() {
+    dragGhost?.remove();
     draggedExerciseId = null;
     dragPointerId = null;
+    dragHandle = null;
+    dragGhost = null;
+    dragOriginExercises = null;
     document.body.classList.remove("is-reordering");
+  }
+
+  function startViewSwipe(event: PointerEvent) {
+    if (
+      event.pointerType === "mouse" ||
+      libraryOpen ||
+      reorderMode ||
+      dragPointerId !== null ||
+      !event.isPrimary
+    )
+      return;
+    if (!(event.target instanceof Element)) return;
+    if (
+      event.target.closest(
+        'input, textarea, select, [contenteditable="true"], .drag-handle, .vault-drag-handle',
+      )
+    )
+      return;
+    viewSwipePointerId = event.pointerId;
+    viewSwipeStartX = event.clientX;
+    viewSwipeStartY = event.clientY;
+    viewSwipeStartedAt = performance.now();
+    viewSwipeHorizontal = false;
+  }
+
+  function moveViewSwipe(event: PointerEvent) {
+    if (viewSwipePointerId !== event.pointerId) return;
+    const deltaX = event.clientX - viewSwipeStartX;
+    const deltaY = event.clientY - viewSwipeStartY;
+    if (
+      !viewSwipeHorizontal &&
+      Math.abs(deltaY) > 12 &&
+      Math.abs(deltaY) > Math.abs(deltaX)
+    ) {
+      clearViewSwipe();
+      return;
+    }
+    if (
+      !viewSwipeHorizontal &&
+      Math.abs(deltaX) > 12 &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.15
+    )
+      viewSwipeHorizontal = true;
+    if (viewSwipeHorizontal) event.preventDefault();
+  }
+
+  function finishViewSwipe(event: PointerEvent) {
+    if (viewSwipePointerId !== event.pointerId) return;
+    const deltaX = event.clientX - viewSwipeStartX;
+    const deltaY = event.clientY - viewSwipeStartY;
+    const elapsed = Math.max(1, performance.now() - viewSwipeStartedAt);
+    const fastSwipe =
+      Math.abs(deltaX) > 42 && Math.abs(deltaX) / elapsed > 0.55;
+    const deliberateSwipe =
+      Math.abs(deltaX) >= Math.max(72, window.innerWidth * 0.18);
+    const shouldNavigate =
+      viewSwipeHorizontal &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.15 &&
+      (fastSwipe || deliberateSwipe);
+    clearViewSwipe();
+    if (!shouldNavigate) return;
+    suppressClickAfterSwipe = true;
+    window.setTimeout(() => (suppressClickAfterSwipe = false), 350);
+
+    const views: AppView[] = ["today", "programme", "settings"];
+    const currentIndex = views.indexOf(activeView);
+    const nextIndex = Math.min(
+      views.length - 1,
+      Math.max(0, currentIndex + (deltaX < 0 ? 1 : -1)),
+    );
+    if (nextIndex !== currentIndex) void showView(views[nextIndex]);
+  }
+
+  function clearViewSwipe() {
+    viewSwipePointerId = null;
+    viewSwipeHorizontal = false;
+  }
+
+  function suppressSwipeClick(event: MouseEvent) {
+    if (!suppressClickAfterSwipe) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressClickAfterSwipe = false;
   }
 
   async function showView(nextView: AppView) {
@@ -509,7 +923,8 @@
       return;
     }
     const transitionDocument = document as ViewTransitionDocument;
-    if (transitionDocument.startViewTransition) transitionDocument.startViewTransition(renderView);
+    if (transitionDocument.startViewTransition)
+      transitionDocument.startViewTransition(renderView);
     else await renderView();
   }
 
@@ -521,7 +936,59 @@
 
   function toggleTodayExercise(exerciseId: string) {
     if (!todayKey) return;
-    history = toggleHistoryExercise(history, todayKey, exerciseId);
+    if (todayKey !== completionDateKey) {
+      completionDateKey = todayKey;
+      todayCompletionOrder = [];
+    }
+    todayCompletionOrder = todayCompletionOrder.includes(exerciseId)
+      ? todayCompletionOrder.filter((id) => id !== exerciseId)
+      : [...todayCompletionOrder, exerciseId];
+    persistTodayCompletion();
+  }
+
+  function restoreTodayCompletion(date: Date) {
+    const dateKey = localDateKey(date);
+    completionDateKey = dateKey;
+    try {
+      const raw = localStorage.getItem(todayCompletionCacheKey);
+      const cached = raw
+        ? (JSON.parse(raw) as { date?: unknown; exerciseIds?: unknown })
+        : null;
+      if (
+        cached?.date === dateKey &&
+        Array.isArray(cached.exerciseIds) &&
+        cached.exerciseIds.every((id) => typeof id === "string")
+      ) {
+        todayCompletionOrder = [...new Set(cached.exerciseIds)];
+        return;
+      }
+    } catch {
+      // A malformed cache is equivalent to no completion state for today.
+    }
+    todayCompletionOrder = [];
+    clearTodayCompletion();
+  }
+
+  function persistTodayCompletion() {
+    try {
+      localStorage.setItem(
+        todayCompletionCacheKey,
+        JSON.stringify({
+          date: completionDateKey,
+          exerciseIds: todayCompletionOrder,
+        }),
+      );
+    } catch {
+      // Completion remains available in memory if local cache storage fails.
+    }
+  }
+
+  function clearTodayCompletion() {
+    try {
+      localStorage.removeItem(todayCompletionCacheKey);
+    } catch {
+      // The in-memory reset is authoritative for the running app.
+    }
   }
 
   function dateLabel(date: Date | null): string {
@@ -533,19 +1000,29 @@
     }).format(date);
   }
 
-  async function applyBrandFavicon(selectedTheme: Theme, selectedAccent: Accent) {
+  async function applyBrandFavicon(
+    selectedTheme: Theme,
+    selectedAccent: Accent,
+  ) {
     await tick();
     const appRoot = document.querySelector<HTMLElement>(".app");
     const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    const browserTheme = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
     if (!appRoot || !favicon) return;
 
     const styles = getComputedStyle(appRoot);
     const accentColour = styles.getPropertyValue(`--${selectedAccent}`).trim();
-    const backgroundColour = styles.getPropertyValue("--mantle").trim();
-    const strokeColour = styles.getPropertyValue("--base").trim();
-    if (![accentColour, backgroundColour, strokeColour].every((colour) => CSS.supports("color", colour))) return;
+    const surfaceColour = styles
+      .getPropertyValue("--md-sys-color-surface")
+      .trim();
+    if (!CSS.supports("color", accentColour)) return;
 
-    const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${backgroundColour}"/><circle cx="32" cy="32" r="23" fill="${accentColour}"/><path d="M14 33h10l4-13 8 25 5-16 3 4h6" fill="none" stroke="${strokeColour}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    if (browserTheme && CSS.supports("color", surfaceColour))
+      browserTheme.content = surfaceColour;
+
+    const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M12 33h11l4-15 7 30 5-21 5 6h8" fill="none" stroke="${accentColour}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     favicon.href = `data:image/svg+xml,${encodeURIComponent(icon)}`;
     favicon.dataset.theme = selectedTheme;
     favicon.dataset.accent = selectedAccent;
@@ -560,35 +1037,520 @@
 
   function exerciseCountForDay(dayId: string | null): number {
     if (!dayId) return 0;
-    return dayId === activeDayId ? dayExercises.length : (workouts[dayId]?.length ?? 0);
+    return dayId === activeDayId
+      ? dayExercises.length
+      : (workouts[dayId]?.length ?? 0);
   }
 
   function selectDay(dayId: string) {
     const weekday = days.findIndex((day) => day.id === dayId);
     if (weekday >= 0) selectedWeekday = weekday;
     weekPickerOpen = false;
+    copyDayOpen = false;
+    clearDayPending = false;
+    programmeMessage = "";
     if (dayId === activeDayId) return;
     workouts = { ...workouts, [activeDayId]: dayExercises };
     activeDayId = dayId;
     dayExercises = [...(workouts[dayId] ?? [])];
   }
 
-  async function exportLedger() {
+  function currentStoredLedger(): StoredLedger {
+    return {
+      workouts: { ...workouts, [activeDayId]: dayExercises },
+      days,
+      activeDayId,
+      theme,
+      accent,
+      exercises: savedExercises,
+      schedule,
+    };
+  }
+
+  function createLedgerExport(ledger: StoredLedger): LedgerExport {
     const exportWorkouts = Object.fromEntries(
-      Object.entries(savedWorkouts).map(([dayId, exercises]) => [
+      Object.entries(ledger.workouts).map(([dayId, exercises]) => [
         dayId,
-        exercises.filter((exercise) => savedExercises.some((definition) => definition.id === exercise.id)),
+        copyWorkout(
+          exercises.filter((exercise) =>
+            ledger.exercises.some(
+              (definition) => definition.id === exercise.id,
+            ),
+          ),
+        ),
       ]),
     );
-    const payload: LedgerExport = {
+    return {
       app: "pulse",
       version: 3,
       exportedAt: new Date().toISOString(),
-      settings: { theme, accent },
-      programme: { days, workouts: exportWorkouts, schedule },
-      library: savedExercises,
-      history,
+      settings: {
+        theme: ledger.theme as Theme,
+        accent: ledger.accent as Accent,
+      },
+      programme: {
+        days: ledger.days,
+        workouts: exportWorkouts,
+        schedule: ledger.schedule,
+      },
+      library: ledger.exercises,
     };
+  }
+
+  function ledgerFingerprint(ledger: StoredLedger): string {
+    return JSON.stringify({
+      workouts: ledger.workouts,
+      days: ledger.days,
+      theme: ledger.theme,
+      accent: ledger.accent,
+      exercises: ledger.exercises,
+      schedule: ledger.schedule,
+    });
+  }
+
+  function automaticBackupContents(ledger: StoredLedger): string {
+    return JSON.stringify(createLedgerExport(ledger), null, 2);
+  }
+
+  async function initialiseAutomaticBackup() {
+    try {
+      const storedPreferences = localStorage.getItem(autoBackupPreferencesKey);
+      autoBackup = normaliseAutoBackupPreferences(
+        storedPreferences ? JSON.parse(storedPreferences) : null,
+      );
+    } catch {
+      autoBackup = { ...defaultAutoBackupPreferences };
+    }
+
+    if (!isNativeApp()) {
+      autoBackup = {
+        ...autoBackup,
+        enabled: false,
+        folderName: "",
+        nextSaveAt: "",
+      };
+      backupFolderSelected = false;
+      persistAutoBackupPreferences();
+      return;
+    }
+
+    try {
+      const status = await getScopedBackupStatus();
+      backupFolderSelected = status.selected;
+      autoBackup = {
+        ...autoBackup,
+        enabled: autoBackup.enabled && status.selected,
+        folderName: status.selected
+          ? (status.folderName ?? "Selected folder")
+          : "",
+        lastError: status.selected ? autoBackup.lastError : "",
+        nextSaveAt: status.selected ? autoBackup.nextSaveAt : "",
+      };
+      persistAutoBackupPreferences();
+      await resumePendingBackup();
+    } catch (error) {
+      backupFolderSelected = false;
+      autoBackup = {
+        ...autoBackup,
+        enabled: false,
+        lastError:
+          error instanceof Error
+            ? error.message
+            : "Could not check backup folder access.",
+        nextSaveAt: "",
+      };
+      persistAutoBackupPreferences();
+    }
+  }
+
+  function scheduleAutomaticBackup(ledger: StoredLedger, force = false) {
+    if (
+      backupSuspended ||
+      !autoBackup.enabled ||
+      !backupFolderSelected ||
+      !isNativeApp()
+    )
+      return;
+    const fingerprint = ledgerFingerprint(ledger);
+    if (!force && fingerprint === lastBackupFingerprint) return;
+    lastBackupFingerprint = fingerprint;
+    const contents = automaticBackupContents(ledger);
+
+    if (autoBackup.timing === "immediate") {
+      const pending = createPendingBackup(
+        contents,
+        fingerprint,
+        Date.now() + 150,
+      );
+      void persistPendingBackup(pending);
+      autoBackup = { ...autoBackup, nextSaveAt: "", lastError: "" };
+      persistAutoBackupPreferences();
+      armBackupTimer(pending, backupGeneration);
+      return;
+    }
+
+    const dueAt = new Date(
+      Date.now() + normaliseBackupDelay(autoBackup.delayMinutes) * 60_000,
+    ).toISOString();
+    const pending = createPendingBackup(
+      contents,
+      fingerprint,
+      Date.parse(dueAt),
+    );
+    void persistPendingBackup(pending);
+    autoBackup = { ...autoBackup, nextSaveAt: dueAt, lastError: "" };
+    persistAutoBackupPreferences();
+    armBackupTimer(pending, backupGeneration);
+  }
+
+  function createPendingBackup(
+    contents: string,
+    fingerprint: string,
+    dueAt: number,
+  ): PendingBackup {
+    backupRevision += 1;
+    return {
+      contents,
+      fingerprint,
+      dueAt: new Date(dueAt).toISOString(),
+      revision: backupRevision,
+    };
+  }
+
+  async function persistPendingBackup(pending: PendingBackup) {
+    try {
+      await savePendingBackupData(pending);
+    } catch (error) {
+      if (pending.revision !== backupRevision) return;
+      autoBackup = {
+        ...autoBackup,
+        lastError:
+          error instanceof Error
+            ? error.message
+            : "Could not queue the automatic backup.",
+      };
+      persistAutoBackupPreferences();
+    }
+  }
+
+  function armBackupTimer(pending: PendingBackup, generation: number) {
+    if (backupTimer !== null) window.clearTimeout(backupTimer);
+    const wait = Math.max(0, Date.parse(pending.dueAt) - Date.now());
+    backupTimer = window.setTimeout(() => {
+      backupTimer = null;
+      if (
+        generation !== backupGeneration ||
+        pending.revision !== backupRevision ||
+        !autoBackup.enabled ||
+        !backupFolderSelected
+      )
+        return;
+      void performAutomaticBackup(pending, generation);
+    }, wait);
+  }
+
+  async function resumePendingBackup() {
+    if (!autoBackup.enabled || !backupFolderSelected) return;
+    const storedPending = await readPendingBackup();
+    if (!storedPending) return;
+    const ledger = currentStoredLedger();
+    const pending = {
+      ...storedPending,
+      contents: automaticBackupContents(ledger),
+      fingerprint: ledgerFingerprint(ledger),
+    };
+    await persistPendingBackup(pending);
+    backupRevision = Math.max(backupRevision, pending.revision);
+    lastBackupFingerprint = pending.fingerprint;
+    if (Date.parse(pending.dueAt) <= Date.now())
+      await performAutomaticBackup(pending, backupGeneration);
+    else armBackupTimer(pending, backupGeneration);
+  }
+
+  function performAutomaticBackup(
+    pending: PendingBackup,
+    generation: number,
+  ): Promise<void> {
+    queuedBackup = { pending, generation };
+    if (backupDrainRunning) return backupWriteQueue;
+    backupDrainRunning = true;
+    backupWriteQueue = drainAutomaticBackupQueue();
+    return backupWriteQueue;
+  }
+
+  function queuedBackupRevision(): number {
+    return queuedBackup?.pending.revision ?? -1;
+  }
+
+  async function drainAutomaticBackupQueue() {
+    try {
+      while (queuedBackup) {
+        const request = queuedBackup;
+        queuedBackup = null;
+        const { pending, generation } = request;
+        if (
+          generation !== backupGeneration ||
+          !autoBackup.enabled ||
+          !backupFolderSelected
+        )
+          continue;
+
+        backupBusy = true;
+        try {
+          const result = await writeScopedBackup(
+            pending.contents,
+            autoBackup.preservePrevious,
+          );
+          if (generation !== backupGeneration) continue;
+          const stored = await readPendingBackup();
+          if (stored?.revision === pending.revision)
+            await clearPendingBackup(false);
+          autoBackup = {
+            ...autoBackup,
+            folderName: result.folderName ?? autoBackup.folderName,
+            lastSavedAt: new Date(result.savedAt).toISOString(),
+            lastError: "",
+            nextSaveAt:
+              stored && stored.revision !== pending.revision
+                ? stored.dueAt
+                : "",
+          };
+          persistAutoBackupPreferences();
+        } catch (error) {
+          const hasNewerQueuedBackup =
+            queuedBackupRevision() > pending.revision;
+          if (
+            hasNewerQueuedBackup ||
+            !shouldRetryBackup(
+              pending.revision,
+              backupRevision,
+              autoBackup.enabled,
+              generation === backupGeneration,
+            )
+          )
+            continue;
+          const retry: PendingBackup = {
+            ...pending,
+            dueAt: new Date(Date.now() + 60_000).toISOString(),
+          };
+          await persistPendingBackup(retry);
+          autoBackup = {
+            ...autoBackup,
+            lastError:
+              error instanceof Error
+                ? error.message
+                : "Automatic backup failed.",
+            nextSaveAt: retry.dueAt,
+          };
+          persistAutoBackupPreferences();
+          armBackupTimer(retry, generation);
+          break;
+        } finally {
+          backupBusy = false;
+        }
+      }
+    } finally {
+      backupDrainRunning = false;
+      if (queuedBackup)
+        void performAutomaticBackup(
+          queuedBackup.pending,
+          queuedBackup.generation,
+        );
+    }
+  }
+
+  async function cancelAutomaticBackups() {
+    backupGeneration += 1;
+    backupRevision += 1;
+    queuedBackup = null;
+    if (backupTimer !== null) window.clearTimeout(backupTimer);
+    backupTimer = null;
+    await clearPendingBackupData().catch(() => undefined);
+  }
+
+  async function waitForActiveBackup() {
+    await backupWriteQueue.catch(() => undefined);
+  }
+
+  async function writeBackupNow(contents: string, fingerprint: string) {
+    const pending = createPendingBackup(contents, fingerprint, Date.now());
+    await persistPendingBackup(pending);
+    await performAutomaticBackup(pending, backupGeneration);
+  }
+
+  /*
+   * A folder write that has already crossed into Android cannot be interrupted.
+   * Cancellation invalidates its result and all queued/retry work.
+   */
+  async function disableAutomaticBackup() {
+    autoBackup = { ...autoBackup, enabled: false, nextSaveAt: "" };
+    persistAutoBackupPreferences();
+    backupSuspended = true;
+    await cancelAutomaticBackups();
+    backupSuspended = false;
+  }
+
+  async function selectAutomaticBackupFolder() {
+    try {
+      const result = await chooseScopedBackupFolder();
+      if (!result.selected) return;
+      backupSuspended = true;
+      await cancelAutomaticBackups();
+      backupFolderSelected = true;
+      autoBackup = {
+        ...autoBackup,
+        enabled: true,
+        folderName: result.folderName ?? "Selected folder",
+        lastError: "",
+      };
+      persistAutoBackupPreferences();
+      backupSuspended = false;
+      scheduleAutomaticBackup(currentStoredLedger(), true);
+    } catch (error) {
+      backupSuspended = false;
+      autoBackup = {
+        ...autoBackup,
+        lastError:
+          error instanceof Error
+            ? error.message
+            : "Could not select that folder.",
+      };
+      persistAutoBackupPreferences();
+    }
+  }
+
+  function setAutomaticBackupEnabled(enabled: boolean) {
+    if (enabled && !backupFolderSelected) {
+      void selectAutomaticBackupFolder();
+      return;
+    }
+    if (!enabled) {
+      void disableAutomaticBackup();
+      return;
+    }
+    autoBackup = { ...autoBackup, enabled: true };
+    persistAutoBackupPreferences();
+    scheduleAutomaticBackup(currentStoredLedger(), true);
+  }
+
+  function setBackupTiming(timing: "immediate" | "delayed") {
+    backupSuspended = true;
+    autoBackup = { ...autoBackup, timing, lastError: "", nextSaveAt: "" };
+    persistAutoBackupPreferences();
+    void cancelAutomaticBackups().then(() => {
+      backupSuspended = false;
+      if (autoBackup.enabled)
+        scheduleAutomaticBackup(currentStoredLedger(), true);
+    });
+  }
+
+  function updateBackupDelay(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const delayMinutes = normaliseBackupDelay(input.value);
+    input.value = String(delayMinutes);
+    backupSuspended = true;
+    autoBackup = { ...autoBackup, delayMinutes, lastError: "", nextSaveAt: "" };
+    persistAutoBackupPreferences();
+    void cancelAutomaticBackups().then(() => {
+      backupSuspended = false;
+      if (autoBackup.enabled && autoBackup.timing === "delayed")
+        scheduleAutomaticBackup(currentStoredLedger(), true);
+    });
+  }
+
+  function setPreservePrevious(preservePrevious: boolean) {
+    autoBackup = { ...autoBackup, preservePrevious };
+    persistAutoBackupPreferences();
+  }
+
+  async function saveAutomaticBackupNow() {
+    if (!backupFolderSelected) {
+      await selectAutomaticBackupFolder();
+      return;
+    }
+    const ledger = currentStoredLedger();
+    const fingerprint = ledgerFingerprint(ledger);
+    lastBackupFingerprint = fingerprint;
+    await writeBackupNow(automaticBackupContents(ledger), fingerprint);
+  }
+
+  async function removeAutomaticBackupAccess() {
+    autoBackup = { ...autoBackup, enabled: false, nextSaveAt: "" };
+    persistAutoBackupPreferences();
+    backupSuspended = true;
+    try {
+      await cancelAutomaticBackups();
+      await waitForActiveBackup();
+      await clearScopedBackupFolder();
+      backupFolderSelected = false;
+      autoBackup = {
+        ...defaultAutoBackupPreferences,
+        timing: autoBackup.timing,
+        delayMinutes: autoBackup.delayMinutes,
+        preservePrevious: autoBackup.preservePrevious,
+      };
+      persistAutoBackupPreferences();
+    } catch (error) {
+      autoBackup = {
+        ...autoBackup,
+        lastError:
+          error instanceof Error
+            ? error.message
+            : "Could not remove folder access.",
+      };
+      persistAutoBackupPreferences();
+    } finally {
+      backupSuspended = false;
+    }
+  }
+
+  async function readPendingBackup(): Promise<PendingBackup | null> {
+    try {
+      const stored = normalisePendingBackup(await loadPendingBackupData());
+      if (stored) return stored;
+
+      const legacyRaw = localStorage.getItem(legacyPendingBackupKey);
+      if (!legacyRaw) return null;
+      const legacy = normalisePendingBackup(JSON.parse(legacyRaw));
+      localStorage.removeItem(legacyPendingBackupKey);
+      if (legacy) await savePendingBackupData(legacy);
+      return legacy;
+    } catch {
+      return null;
+    }
+  }
+
+  async function clearPendingBackup(updatePreferences = true) {
+    if (backupTimer !== null) window.clearTimeout(backupTimer);
+    backupTimer = null;
+    await clearPendingBackupData().catch(() => undefined);
+    if (updatePreferences && autoBackup.nextSaveAt) {
+      autoBackup = { ...autoBackup, nextSaveAt: "" };
+      persistAutoBackupPreferences();
+    }
+  }
+
+  function persistAutoBackupPreferences() {
+    try {
+      localStorage.setItem(
+        autoBackupPreferencesKey,
+        JSON.stringify(autoBackup),
+      );
+    } catch {
+      // Preferences are small; keep the current in-memory state if storage is unavailable.
+    }
+  }
+
+  function formatBackupTimestamp(value: string): string {
+    if (!value) return "Not saved yet";
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  }
+
+  async function exportLedger() {
+    const payload = createLedgerExport(currentStoredLedger());
     const contents = JSON.stringify(payload, null, 2);
     const filename = `pulse-ledger-${new Date().toISOString().slice(0, 10)}.json`;
     try {
@@ -620,13 +1582,15 @@
     if (!file) return;
     try {
       const candidate: unknown = JSON.parse(await file.text());
-      if (!isLedgerExport(candidate)) throw new Error("This is not a valid Pulse ledger file.");
+      if (!isLedgerExport(candidate))
+        throw new Error("This is not a valid Pulse ledger file.");
       pendingImport = candidate;
       transferMessage = "";
       transferError = false;
     } catch (error) {
       pendingImport = null;
-      transferMessage = error instanceof Error ? error.message : "Could not read that file.";
+      transferMessage =
+        error instanceof Error ? error.message : "Could not read that file.";
       transferError = true;
     } finally {
       input.value = "";
@@ -638,12 +1602,17 @@
     const imported = pendingImport;
     installWeeklyProgramme(
       imported.programme.days.map((day) => ({ ...day })),
-      Object.fromEntries(Object.entries(imported.programme.workouts).map(([id, exercises]) => [id, exercises.map((exercise) => ({ ...exercise }))])),
+      Object.fromEntries(
+        Object.entries(imported.programme.workouts).map(([id, exercises]) => [
+          id,
+          exercises.map((exercise) => ({ ...exercise })),
+        ]),
+      ),
     );
     theme = imported.settings.theme;
     accent = imported.settings.accent;
-    if (imported.library) savedExercises = imported.library.map((exercise) => ({ ...exercise }));
-    history = normaliseTrainingHistory(imported.history);
+    if (imported.library)
+      savedExercises = imported.library.map((exercise) => ({ ...exercise }));
     pendingImport = null;
     transferMessage = "Imported your weekly programme.";
     transferError = false;
@@ -651,7 +1620,10 @@
 
   async function openLibrary(mode: LibraryMode) {
     if (libraryOpen) return;
-    libraryReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    libraryReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     libraryMode = mode;
     search = "";
     selectedMuscle = "All";
@@ -669,10 +1641,12 @@
 
   async function closeLibrary(returnFocus = true) {
     if (!libraryOpen || libraryClosing) return;
-    const animate = browser && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const animate =
+      browser && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (animate) {
       libraryClosing = true;
       stopVaultDragRendering();
+      vaultElement?.classList.add("closing");
       vaultElement?.classList.remove("dragging");
       await new Promise((resolve) => window.setTimeout(resolve, 220));
     }
@@ -688,7 +1662,9 @@
       return;
     }
     await tick();
-    const returnTarget = libraryReturnFocus?.isConnected ? libraryReturnFocus : addMovementButton;
+    const returnTarget = libraryReturnFocus?.isConnected
+      ? libraryReturnFocus
+      : addMovementButton;
     returnTarget?.focus();
     libraryReturnFocus = null;
   }
@@ -718,7 +1694,10 @@
     vaultRenderFrame = null;
     const progress = sheetDragProgress(vaultDragY, vaultDragSheetHeight);
     vaultElement?.style.setProperty("--sheet-drag-y", `${vaultDragY}px`);
-    vaultScrim?.style.setProperty("--sheet-scrim-opacity", String(Math.max(0.18, 1 - progress * 1.15)));
+    vaultScrim?.style.setProperty(
+      "--sheet-scrim-opacity",
+      String(Math.max(0.18, 1 - progress * 1.15)),
+    );
   }
 
   function scheduleVaultDragRender() {
@@ -732,7 +1711,10 @@
     const deltaY = event.clientY - vaultDragLastY;
     if (deltaTime > 0 && Math.abs(deltaY) > 0.5) {
       const instantVelocity = deltaY / deltaTime;
-      vaultDragVelocity = vaultDragVelocity === 0 ? instantVelocity : instantVelocity * 0.72 + vaultDragVelocity * 0.28;
+      vaultDragVelocity =
+        vaultDragVelocity === 0
+          ? instantVelocity
+          : instantVelocity * 0.72 + vaultDragVelocity * 0.28;
       vaultDragLastY = event.clientY;
       vaultDragLastAt = now;
     }
@@ -742,7 +1724,12 @@
   }
 
   function startVaultDrag(event: PointerEvent) {
-    if (!window.matchMedia(mobileVaultQuery).matches || event.button !== 0 || libraryClosing) return;
+    if (
+      !window.matchMedia(mobileVaultQuery).matches ||
+      event.button !== 0 ||
+      libraryClosing
+    )
+      return;
     event.preventDefault();
     stopVaultDragRendering();
     vaultElement?.classList.add("dragging");
@@ -766,11 +1753,13 @@
   function finishVaultDrag(event: PointerEvent, cancelled = false) {
     if (vaultDragPointerId !== event.pointerId) return;
     const handle = event.currentTarget as HTMLElement;
-    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    if (handle.hasPointerCapture(event.pointerId))
+      handle.releasePointerCapture(event.pointerId);
     if (Math.abs(event.clientY - vaultDragLastY) > 0.5) updateVaultDrag(event);
     stopVaultDragRendering();
     renderVaultDrag();
-    const releaseVelocity = performance.now() - vaultDragLastAt <= 90 ? vaultDragVelocity : 0;
+    const releaseVelocity =
+      performance.now() - vaultDragLastAt <= 90 ? vaultDragVelocity : 0;
     const dismiss =
       !cancelled &&
       shouldDismissSheet({
@@ -812,7 +1801,11 @@
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable.at(-1) ?? first;
-    if (event.shiftKey && (document.activeElement === first || !vaultElement.contains(document.activeElement))) {
+    if (
+      event.shiftKey &&
+      (document.activeElement === first ||
+        !vaultElement.contains(document.activeElement))
+    ) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -838,7 +1831,11 @@
 
   function handleGlobalPointerDown(event: PointerEvent) {
     if (!(event.target instanceof Element)) return;
-    if (vaultFiltersOpen && !event.target.closest(".vault-filter-button, .vault-filter-panel")) vaultFiltersOpen = false;
+    if (
+      vaultFiltersOpen &&
+      !event.target.closest(".vault-filter-button, .vault-filter-panel")
+    )
+      vaultFiltersOpen = false;
   }
 </script>
 
@@ -846,33 +1843,41 @@
   onpointerdown={handleGlobalPointerDown}
   onpointermove={handlePointerReorder}
   onpointerup={stopPointerReorder}
-  onpointercancel={stopPointerReorder}
+  onpointercancel={(event) => stopPointerReorder(event, true)}
   onkeydown={handlePopoverKeydown}
 />
 
 <svelte:head>
   <title>Pulse — Workout planner</title>
-  <meta name="description" content="Your weekly training programme, available offline." />
+  <meta
+    name="description"
+    content="Your weekly training programme, available offline."
+  />
 </svelte:head>
 
 <div class="app" data-theme={theme} data-accent={accent}>
-  <header class="masthead" inert={libraryOpen}>
-    <a class="wordmark" href="/" aria-label="Pulse home">
-      <span class="wordmark-icon"><Activity size={18} strokeWidth={2.4} /></span>
-      <strong>Pulse</strong>
-    </a>
-
-    <div class="masthead-actions">
-      <p class="save-state"><span></span> Offline</p>
-    </div>
-  </header>
-
   <nav class="app-navigation" aria-label="Main navigation" inert={libraryOpen}>
-    <button class:active={activeView === "today"} onclick={() => showView("today")} aria-current={activeView === "today" ? "page" : undefined}>
+    <button
+      class:active={activeView === "today" &&
+        !(libraryOpen && libraryMode === "manage")}
+      onclick={() => showView("today")}
+      aria-current={activeView === "today" &&
+      !(libraryOpen && libraryMode === "manage")
+        ? "page"
+        : undefined}
+    >
       <span class="nav-indicator"><CalendarDays size={21} /></span>
       <span class="nav-label">Today</span>
     </button>
-    <button class:active={activeView === "programme"} onclick={() => openProgramme(activeDayId)} aria-current={activeView === "programme" ? "page" : undefined}>
+    <button
+      class:active={activeView === "programme" &&
+        !(libraryOpen && libraryMode === "manage")}
+      onclick={() => openProgramme(activeDayId)}
+      aria-current={activeView === "programme" &&
+      !(libraryOpen && libraryMode === "manage")
+        ? "page"
+        : undefined}
+    >
       <span class="nav-indicator"><Dumbbell size={21} /></span>
       <span class="nav-label">Programme</span>
     </button>
@@ -885,13 +1890,29 @@
       <span class="nav-indicator"><LibraryBig size={21} /></span>
       <span class="nav-label">Exercises</span>
     </button>
-    <button class:active={activeView === "settings"} onclick={() => showView("settings")} aria-current={activeView === "settings" ? "page" : undefined}>
+    <button
+      class:active={activeView === "settings" &&
+        !(libraryOpen && libraryMode === "manage")}
+      onclick={() => showView("settings")}
+      aria-current={activeView === "settings" &&
+      !(libraryOpen && libraryMode === "manage")
+        ? "page"
+        : undefined}
+    >
       <span class="nav-indicator"><Settings size={21} /></span>
       <span class="nav-label">Settings</span>
     </button>
   </nav>
 
-  <main class="app-content" inert={libraryOpen}>
+  <main
+    class="app-content"
+    inert={libraryOpen}
+    onpointerdown={startViewSwipe}
+    onpointermove={moveViewSwipe}
+    onpointerup={finishViewSwipe}
+    onpointercancel={clearViewSwipe}
+    onclickcapture={suppressSwipeClick}
+  >
     {#if activeView === "today"}
       <section class="screen today-screen" aria-labelledby="today-title">
         <header class="screen-heading">
@@ -899,7 +1920,9 @@
             <p>{dateLabel(currentDate)}</p>
             <h1 id="today-title">Today</h1>
           </div>
-          <span class="screen-brand" aria-hidden="true"><Activity size={22} strokeWidth={2.4} /></span>
+          <span class="screen-brand" aria-hidden="true"
+            ><PulseMark size={30} /></span
+          >
         </header>
 
         <div class="week-strip" aria-label="This week's schedule">
@@ -929,12 +1952,20 @@
                 {todayExercises.length === 1 ? "exercise" : "exercises"}
               </p>
             </div>
-            <div class="progress-count" aria-label={`${completedTodayCount} of ${todayExercises.length} exercises done`}>
-              <strong>{completedTodayCount}<small>/{todayExercises.length}</small></strong>
+            <div
+              class="progress-count"
+              aria-label={`${completedTodayCount} of ${todayExercises.length} exercises done`}
+            >
+              <strong
+                >{completedTodayCount}<small>/{todayExercises.length}</small
+                ></strong
+              >
               <span>done</span>
             </div>
             <div class="progress-track">
-              <span style={`width: ${todayExercises.length ? (completedTodayCount / todayExercises.length) * 100 : 0}%`}></span>
+              <span
+                style={`width: ${todayExercises.length ? (completedTodayCount / todayExercises.length) * 100 : 0}%`}
+              ></span>
             </div>
           </section>
 
@@ -954,7 +1985,9 @@
                       aria-pressed={todayCompleted.has(exercise.id)}
                       aria-label={`${todayCompleted.has(exercise.id) ? "Mark" : "Mark"} ${exercise.name} ${todayCompleted.has(exercise.id) ? "not done" : "done"}`}
                     >
-                      {#if todayCompleted.has(exercise.id)}<CircleCheck size={24} />{:else}<Circle size={24} />{/if}
+                      {#if todayCompleted.has(exercise.id)}<CircleCheck
+                          size={24}
+                        />{:else}<Circle size={24} />{/if}
                     </button>
                     <div class="exercise-copy">
                       <h3>{exercise.name}</h3>
@@ -964,7 +1997,9 @@
                     </div>
                     <div class="exercise-dose">
                       <strong
-                        >{exercise.sets} × {weightLabel(exercise.load)}{#if parseWeight(exercise.load) !== null}
+                        >{exercise.sets} × {weightLabel(
+                          exercise.load,
+                        )}{#if parseWeight(exercise.load) !== null}
                           kg{/if}</strong
                       >
                       <span
@@ -977,19 +2012,35 @@
                       onclick={() => toggleExpanded(exercise.id)}
                       aria-expanded={expanded.has(exercise.id)}
                       aria-label={`${expanded.has(exercise.id) ? "Hide" : "Show"} details for ${exercise.name}`}
-                      ><ChevronDown class={expanded.has(exercise.id) ? "turned" : ""} size={20} /></button
+                      ><ChevronDown
+                        class={expanded.has(exercise.id) ? "turned" : ""}
+                        size={20}
+                      /></button
                     >
                   </div>
                   {#if expanded.has(exercise.id)}
-                    <div class="exercise-details">
-                      {#if exercise.imageUrl}<img src={exercise.imageUrl} alt={`Reference for ${exercise.name}`} loading="lazy" />{/if}
+                    <div
+                      class="exercise-details"
+                      in:slide={{ duration: 170 }}
+                      out:slide={{ duration: 130 }}
+                    >
+                      {#if exercise.imageUrl}<img
+                          src={exercise.imageUrl}
+                          alt={`Reference for ${exercise.name}`}
+                          loading="lazy"
+                        />{/if}
                       {#if exercise.description}<p>
                           {exercise.description}
                         </p>{/if}
                       {#if exercise.note}<p class="exercise-cue">
                           {exercise.note}
                         </p>{/if}
-                      {#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Open form guide</a>{/if}
+                      {#if exercise.guideUrl}<a
+                          href={exercise.guideUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          ><ExternalLink size={16} /> Open form guide</a
+                        >{/if}
                     </div>
                   {/if}
                 </article>
@@ -1001,7 +2052,10 @@
               <h2>This plan is empty</h2>
               <p>Add exercises from your library in Programme.</p>
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-              <md-filled-tonal-button onclick={() => openProgramme(todayPlan?.id)}>Open programme</md-filled-tonal-button>
+              <md-filled-tonal-button
+                onclick={() => openProgramme(todayPlan?.id)}
+                >Open programme</md-filled-tonal-button
+              >
             </div>
           {/if}
         {:else if hydrated}
@@ -1020,13 +2074,18 @@
         {/if}
       </section>
     {:else if activeView === "programme"}
-      <section class="screen programme-screen" aria-labelledby="programme-title">
+      <section
+        class="screen programme-screen"
+        aria-labelledby="programme-title"
+      >
         <header class="screen-heading">
           <div>
             <p>Seven days, your rules</p>
             <h1 id="programme-title">Programme</h1>
           </div>
-          <span class="screen-brand" aria-hidden="true"><Activity size={22} strokeWidth={2.4} /></span>
+          <span class="screen-brand" aria-hidden="true"
+            ><PulseMark size={30} /></span
+          >
         </header>
         <div class="programme-layout">
           <aside class="week-schedule" aria-labelledby="week-heading">
@@ -1037,11 +2096,19 @@
               </div>
               <span>7 days</span>
             </div>
-            <button class="week-picker-toggle" onclick={() => (weekPickerOpen = !weekPickerOpen)} aria-expanded={weekPickerOpen}>
+            <button
+              class="week-picker-toggle"
+              onclick={() => (weekPickerOpen = !weekPickerOpen)}
+              aria-expanded={weekPickerOpen}
+            >
               <span class="week-picker-icon"><CalendarDays size={20} /></span>
               <span>
                 <strong>{activeDayName}</strong>
-                <small>{dayExercises.length ? `${dayExercises.length} ${dayExercises.length === 1 ? "exercise" : "exercises"}` : "Rest day"}</small>
+                <small
+                  >{dayExercises.length
+                    ? `${dayExercises.length} ${dayExercises.length === 1 ? "exercise" : "exercises"}`
+                    : "Rest day"}</small
+                >
               </span>
               <ChevronDown class={weekPickerOpen ? "turned" : ""} size={20} />
             </button>
@@ -1055,11 +2122,15 @@
                     onclick={() => selectDay(days[index].id)}
                   >
                     <span
-                      ><strong>{weekday}</strong>{#if index === todayIndex}<small>Today</small>{/if}</span
+                      ><strong>{weekday}</strong
+                      >{#if index === todayIndex}<small>Today</small>{/if}</span
                     >
                     <span class="day-status">
                       {#if (days[index].id === activeDayId ? dayExercises : (workouts[days[index].id] ?? [])).length}
-                        {(days[index].id === activeDayId ? dayExercises : (workouts[days[index].id] ?? [])).length} exercises
+                        {(days[index].id === activeDayId
+                          ? dayExercises
+                          : (workouts[days[index].id] ?? [])
+                        ).length} exercises
                       {:else}
                         Rest day
                       {/if}
@@ -1073,7 +2144,7 @@
 
           {#key activeDayId}
             <section class="session-page" aria-labelledby="session-title">
-              <header class="session-heading">
+              <header class:editing={editMode} class="session-heading">
                 <div class="plan-title">
                   <h2 id="session-title">{activeDayName}</h2>
                   <p>
@@ -1084,20 +2155,93 @@
                 <div class="programme-actions">
                   {#if editMode}
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                    <md-filled-tonal-button bind:this={addMovementButton} class="add-movement" onclick={() => openLibrary("pick")}
-                      ><span slot="icon"><LibraryBig size={18} /></span>Add exercise</md-filled-tonal-button
-                    >
+                    {#if reorderMode}
+                      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                      <md-filled-tonal-button
+                        class="finish-reorder"
+                        onclick={toggleReorderMode}
+                        ><span slot="icon"><Check size={18} /></span>Finish
+                        order</md-filled-tonal-button
+                      >
+                    {:else}
+                      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                      <md-filled-tonal-button
+                        bind:this={addMovementButton}
+                        class="add-movement"
+                        onclick={() => openLibrary("pick")}
+                        ><span slot="icon"><LibraryBig size={18} /></span>Add
+                        exercise</md-filled-tonal-button
+                      >
+                      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                      <md-text-button onclick={toggleReorderMode}
+                        ><span slot="icon"><GripVertical size={18} /></span
+                        >Reorder</md-text-button
+                      >
+                      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                      <md-text-button
+                        class:active={copyDayOpen}
+                        onclick={() => {
+                          copyDayOpen = !copyDayOpen;
+                          clearDayPending = false;
+                        }}
+                        aria-expanded={copyDayOpen}
+                        ><span slot="icon"><Copy size={18} /></span>Copy day</md-text-button
+                      >
+                      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                      <md-text-button
+                        class:confirming={clearDayPending}
+                        onclick={requestClearDay}
+                        ><span slot="icon"><Trash2 size={18} /></span
+                        >{clearDayPending
+                          ? "Confirm clear"
+                          : "Clear day"}</md-text-button
+                      >
+                    {/if}
+                  {/if}
+                  {#if !reorderMode}
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                    <md-text-button class:active={reorderMode} onclick={() => (reorderMode = !reorderMode)} aria-pressed={reorderMode}
-                      ><span slot="icon"><GripVertical size={18} /></span>{reorderMode ? "Finish order" : "Reorder"}</md-text-button
+                    <md-filled-tonal-button
+                      class="edit-toggle"
+                      onclick={toggleEditMode}
+                      ><span slot="icon"><Pencil size={18} /></span>{editMode
+                        ? "Done"
+                        : "Edit plan"}</md-filled-tonal-button
                     >
                   {/if}
-                  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                  <md-filled-tonal-button class="edit-toggle" onclick={toggleEditMode}
-                    ><span slot="icon"><Pencil size={18} /></span>{editMode ? "Done" : "Edit plan"}</md-filled-tonal-button
-                  >
                 </div>
               </header>
+
+              {#if programmeMessage}
+                <p class="programme-message" role="status">
+                  {programmeMessage}
+                </p>
+              {/if}
+
+              {#if copyDayOpen}
+                <section
+                  class="copy-day-panel"
+                  aria-labelledby="copy-day-title"
+                >
+                  <div>
+                    <h3 id="copy-day-title">Copy {activeDayName} to</h3>
+                    <p>
+                      This replaces the workout currently saved on that day.
+                    </p>
+                  </div>
+                  <div class="copy-day-options">
+                    {#each days.filter((day) => day.id !== activeDayId) as day}
+                      <button type="button" onclick={() => copyDayTo(day.id)}>
+                        <span>{day.name}</span>
+                        <small
+                          >{exerciseCountForDay(day.id)
+                            ? `${exerciseCountForDay(day.id)} exercises`
+                            : "Rest day"}</small
+                        >
+                      </button>
+                    {/each}
+                  </div>
+                </section>
+              {/if}
 
               {#if dayExercises.length}
                 <div class="movement-list">
@@ -1105,140 +2249,212 @@
                     <article
                       data-exercise-id={exercise.id}
                       class:reordering={reorderMode}
+                      class:hinting={reorderMode && reorderHintActive}
                       class:dragging={draggedExerciseId === exercise.id}
                       class:expanded={expanded.has(exercise.id)}
                       class="movement"
+                      animate:flip={{ duration: 180 }}
                     >
                       <div class="movement-main">
                         <div class="sequence-number">
                           {#if reorderMode}
                             <button
                               class="drag-handle"
-                              onpointerdown={(event) => startPointerReorder(event, exercise.id)}
-                              aria-label={`Drag ${exercise.name} to change its priority`}><GripVertical size={19} /></button
+                              onpointerdown={(event) =>
+                                startPointerReorder(event, exercise.id)}
+                              aria-label={`Hold and drag ${exercise.name} to change its position`}
+                              ><GripVertical size={21} /></button
                             >
+                          {:else}
+                            <span>{String(index + 1).padStart(2, "0")}</span>
                           {/if}
-                          <span>{String(index + 1).padStart(2, "0")}</span>
                         </div>
 
                         <div class="movement-name">
                           <h2>{exercise.name}</h2>
                           <p>
-                            <span class="movement-muscles">{exercise.muscles.join(" / ")}</span><span class="movement-divider">•</span><span
+                            <span class="movement-muscles"
+                              >{exercise.muscles.join(" / ")}</span
+                            ><span class="movement-divider">•</span><span
                               >{exercise.equipment}</span
                             >
                           </p>
                         </div>
 
-                        <button
-                          class="details-toggle"
-                          onclick={() => toggleExpanded(exercise.id)}
-                          aria-expanded={expanded.has(exercise.id)}
-                          aria-controls={`${exercise.id}-details`}
-                          aria-label={`${expanded.has(exercise.id) ? "Hide" : "Show"} details for ${exercise.name}`}
-                        >
-                          <span>Details</span>
-                          <ChevronDown class={expanded.has(exercise.id) ? "turned" : ""} size={17} />
-                        </button>
+                        {#if !reorderMode}
+                          <button
+                            class="details-toggle"
+                            onclick={() => toggleExpanded(exercise.id)}
+                            aria-expanded={expanded.has(exercise.id)}
+                            aria-controls={`${exercise.id}-details`}
+                            aria-label={`${expanded.has(exercise.id) ? "Hide" : "Show"} details for ${exercise.name}`}
+                          >
+                            <span>Details</span>
+                            <ChevronDown
+                              class={expanded.has(exercise.id) ? "turned" : ""}
+                              size={17}
+                            />
+                          </button>
+                        {/if}
                       </div>
 
                       {#if reorderMode}
                         <div class="reorder-strip">
-                          <span><GripVertical size={14} /> Hold the grip and move</span>
+                          <span
+                            >Drag the highlighted handle or tap an arrow</span
+                          >
                           <div>
-                            <button onclick={() => moveExercise(index, -1)} disabled={index === 0} aria-label={`Move ${exercise.name} up`}
+                            <button
+                              onclick={() => moveExercise(index, -1)}
+                              disabled={index === 0}
+                              aria-label={`Move ${exercise.name} up`}
                               ><ArrowUp size={16} /></button
                             >
                             <button
                               onclick={() => moveExercise(index, 1)}
                               disabled={index === dayExercises.length - 1}
-                              aria-label={`Move ${exercise.name} down`}><ArrowDown size={16} /></button
+                              aria-label={`Move ${exercise.name} down`}
+                              ><ArrowDown size={16} /></button
                             >
                           </div>
                         </div>
                       {/if}
 
-                      {#if editMode}
-                        <div class="prescription-editor">
-                          <div class="prescription-control sets-control">
-                            <span class="control-label">Sets</span>
-                            <div class="number-stepper">
-                              <button onclick={() => adjustSets(exercise, -1)} disabled={exercise.sets <= 1} aria-label={`Decrease sets for ${exercise.name}`}
-                                ><Minus size={16} /></button
-                              ><strong>{exercise.sets}</strong><button
-                                onclick={() => adjustSets(exercise, 1)}
-                                disabled={exercise.sets >= 20}
-                                aria-label={`Increase sets for ${exercise.name}`}><Plus size={16} /></button
-                              >
+                      {#if !reorderMode}
+                        {#if editMode}
+                          <div class="prescription-editor">
+                            <div class="prescription-control sets-control">
+                              <span class="control-label">Sets</span>
+                              <div class="number-stepper">
+                                <button
+                                  onclick={() => adjustSets(exercise, -1)}
+                                  disabled={exercise.sets <= 1}
+                                  aria-label={`Decrease sets for ${exercise.name}`}
+                                  ><Minus size={16} /></button
+                                ><strong>{exercise.sets}</strong><button
+                                  onclick={() => adjustSets(exercise, 1)}
+                                  disabled={exercise.sets >= 20}
+                                  aria-label={`Increase sets for ${exercise.name}`}
+                                  ><Plus size={16} /></button
+                                >
+                              </div>
                             </div>
-                          </div>
-                          <div class="prescription-control weight-control">
-                            <span class="control-label">Weight · ±2.5 kg</span>
-                            <div class="weight-stepper">
-                              <button
-                                onclick={() => adjustWeight(exercise, -2.5)}
-                                disabled={parseWeight(exercise.load) === null}
-                                aria-label={`Decrease weight for ${exercise.name} by 2.5 kilograms`}><Minus size={16} /></button
-                              ><label
-                                ><input
-                                  type="number"
-                                  min="0"
-                                  step="0.5"
-                                  inputmode="decimal"
-                                  value={weightInputValue(exercise.load)}
-                                  placeholder="0"
-                                  oninput={(event) => updateWeightInput(exercise, event)}
-                                  onblur={() => settleWeight(exercise)}
-                                  aria-label={`Weight for ${exercise.name} in kilograms`}
-                                /><span>kg</span></label
-                              ><button onclick={() => adjustWeight(exercise, 2.5)} aria-label={`Increase weight for ${exercise.name} by 2.5 kilograms`}
-                                ><Plus size={16} /></button
+                            <div class="prescription-control weight-control">
+                              <span class="control-label">Weight · ±2.5 kg</span
                               >
+                              <div class="weight-stepper">
+                                <button
+                                  onclick={() => adjustWeight(exercise, -2.5)}
+                                  disabled={parseWeight(exercise.load) === null}
+                                  aria-label={`Decrease weight for ${exercise.name} by 2.5 kilograms`}
+                                  ><Minus size={16} /></button
+                                ><label
+                                  ><input
+                                    type="number"
+                                    min="0"
+                                    step="0.5"
+                                    inputmode="decimal"
+                                    value={weightInputValue(exercise.load)}
+                                    placeholder="0"
+                                    oninput={(event) =>
+                                      updateWeightInput(exercise, event)}
+                                    onblur={() => settleWeight(exercise)}
+                                    aria-label={`Weight for ${exercise.name} in kilograms`}
+                                  /><span>kg</span></label
+                                ><button
+                                  onclick={() => adjustWeight(exercise, 2.5)}
+                                  aria-label={`Increase weight for ${exercise.name} by 2.5 kilograms`}
+                                  ><Plus size={16} /></button
+                                >
+                              </div>
                             </div>
-                          </div>
-                          <label class="text-prescription"><span>Rep range</span><input bind:value={exercise.reps} oninput={touch} placeholder="8–12" /></label>
-                          <label class="text-prescription"><span>Rest</span><input bind:value={exercise.rest} oninput={touch} placeholder="90 sec" /></label>
-                        </div>
-                      {:else}
-                        <div class="prescription-readout">
-                          <p class="primary-prescription">
-                            <span>Sets × load</span>
-                            <strong
-                              >{exercise.sets}<b aria-hidden="true">×</b>{weightLabel(exercise.load)}{#if parseWeight(exercise.load) !== null}<small>kg</small
-                                >{/if}</strong
+                            <label class="text-prescription"
+                              ><span>Rep range</span><input
+                                bind:value={exercise.reps}
+                                oninput={touch}
+                                placeholder="8–12"
+                              /></label
                             >
-                          </p>
-                          <div class="secondary-prescription">
-                            <p class="reps-readout">
-                              <span>Reps</span><strong>{exercise.reps || "Open"}</strong>
+                            <label class="text-prescription"
+                              ><span>Rest</span><input
+                                bind:value={exercise.rest}
+                                oninput={touch}
+                                placeholder="90 sec"
+                              /></label
+                            >
+                          </div>
+                        {:else}
+                          <div class="prescription-readout">
+                            <p class="primary-prescription">
+                              <span>Sets × load</span>
+                              <strong
+                                >{exercise.sets}<b aria-hidden="true">×</b
+                                >{weightLabel(
+                                  exercise.load,
+                                )}{#if parseWeight(exercise.load) !== null}<small
+                                    >kg</small
+                                  >{/if}</strong
+                              >
                             </p>
-                            {#if exercise.rest && exercise.rest !== "—"}<p class="rest-readout">
-                                <span>Rest</span><strong>{exercise.rest}</strong>
-                              </p>{/if}
+                            <div class="secondary-prescription">
+                              <p class="reps-readout">
+                                <span>Reps</span><strong
+                                  >{exercise.reps || "Open"}</strong
+                                >
+                              </p>
+                              {#if exercise.rest && exercise.rest !== "—"}<p
+                                  class="rest-readout"
+                                >
+                                  <span>Rest</span><strong
+                                    >{exercise.rest}</strong
+                                  >
+                                </p>{/if}
+                            </div>
                           </div>
-                        </div>
+                        {/if}
                       {/if}
 
-                      {#if expanded.has(exercise.id)}
-                        <div class="movement-details" id={`${exercise.id}-details`}>
+                      {#if !reorderMode && expanded.has(exercise.id)}
+                        <div
+                          class="movement-details"
+                          id={`${exercise.id}-details`}
+                          in:slide={{ duration: 170 }}
+                          out:slide={{ duration: 130 }}
+                        >
                           {#if exercise.imageUrl}
                             <figure class="movement-media">
-                              <img src={exercise.imageUrl} alt={`Reference for ${exercise.name}`} loading="lazy" />
+                              <img
+                                src={exercise.imageUrl}
+                                alt={`Reference for ${exercise.name}`}
+                                loading="lazy"
+                              />
                             </figure>
                           {/if}
                           {#if exercise.description}<p>
                               {exercise.description}
                             </p>{/if}
                           <div class="details-toolbar">
-                            {#if exercise.guideUrl}<a href={exercise.guideUrl} target="_blank" rel="noreferrer"
+                            {#if exercise.guideUrl}<a
+                                href={exercise.guideUrl}
+                                target="_blank"
+                                rel="noreferrer"
                                 ><ExternalLink size={14} /> Open form reference</a
                               >{/if}
                             {#if editMode}<label class="movement-note"
-                                ><span>Private cue</span><input placeholder="What should you remember?" bind:value={exercise.note} oninput={touch} /></label
-                              >{:else if exercise.note}<p class="movement-note-readout">
+                                ><span>Private cue</span><input
+                                  placeholder="What should you remember?"
+                                  bind:value={exercise.note}
+                                  oninput={touch}
+                                /></label
+                              >{:else if exercise.note}<p
+                                class="movement-note-readout"
+                              >
                                 {exercise.note}
                               </p>{/if}
-                            {#if editMode}<button class="delete-movement" onclick={() => removeExercise(exercise.id)} aria-label={`Remove ${exercise.name}`}
+                            {#if editMode}<button
+                                class="delete-movement"
+                                onclick={() => removeExercise(exercise.id)}
+                                aria-label={`Remove ${exercise.name}`}
                                 ><Trash2 size={15} /></button
                               >{/if}
                           </div>
@@ -1257,7 +2473,9 @@
                       else toggleEditMode();
                     }}
                     ><Plus size={15} />
-                    {editMode ? "Add the first movement" : "Edit this day"}</button
+                    {editMode
+                      ? "Add the first movement"
+                      : "Edit this day"}</button
                   >
                 </div>
               {/if}
@@ -1272,11 +2490,16 @@
             <p>Local and personal</p>
             <h1 id="settings-title">Settings</h1>
           </div>
-          <span class="screen-brand" aria-hidden="true"><Activity size={22} strokeWidth={2.4} /></span>
+          <span class="screen-brand" aria-hidden="true"
+            ><PulseMark size={30} /></span
+          >
         </header>
 
         <div class="settings-groups">
-          <section class="settings-group" aria-labelledby="appearance-heading">
+          <section
+            class="settings-group appearance-settings"
+            aria-labelledby="appearance-heading"
+          >
             <header>
               <span><Settings size={20} /></span>
               <div>
@@ -1287,7 +2510,11 @@
             <fieldset class="flavour-options">
               <legend>Flavour</legend>
               {#each themes as option}
-                <button class:active={theme === option} onclick={() => (theme = option)} aria-pressed={theme === option}>
+                <button
+                  class:active={theme === option}
+                  onclick={() => (theme = option)}
+                  aria-pressed={theme === option}
+                >
                   <span class={`flavour-preview ${option}`}></span>{option}
                 </button>
               {/each}
@@ -1304,36 +2531,215 @@
                     aria-pressed={accent === option}
                     title={option}
                   >
-                    {#if accent === option}<Check size={13} strokeWidth={3} />{/if}
+                    {#if accent === option}<Check
+                        size={13}
+                        strokeWidth={3}
+                      />{/if}
                   </button>
                 {/each}
               </div>
             </fieldset>
           </section>
 
-          <section class="settings-group" aria-labelledby="data-heading">
+          {#if nativePlatform}<section
+              class="settings-group backup-settings"
+              aria-labelledby="backup-heading"
+            >
+              <header>
+                <span><FolderLock size={20} /></span>
+                <div>
+                  <h2 id="backup-heading">Automatic backup</h2>
+                  <p>Keep one current ledger in a folder you control.</p>
+                </div>
+                <button
+                  class="settings-switch"
+                  class:active={autoBackup.enabled}
+                  role="switch"
+                  aria-checked={autoBackup.enabled}
+                  aria-label="Automatic backup"
+                  onclick={() => setAutomaticBackupEnabled(!autoBackup.enabled)}
+                  ><span></span></button
+                >
+              </header>
+
+              <div
+                class:connected={backupFolderSelected}
+                class="backup-location"
+              >
+                <span><FolderOpen size={19} /></span>
+                <div>
+                  <small>Backup location</small>
+                  <strong
+                    >{backupFolderSelected
+                      ? autoBackup.folderName
+                      : "No folder selected"}</strong
+                  >
+                  <code>{automaticBackupFilename}</code>
+                </div>
+                <button onclick={selectAutomaticBackupFolder}
+                  >{backupFolderSelected ? "Change" : "Choose folder"}</button
+                >
+              </div>
+
+              <div class="backup-status-grid" aria-live="polite">
+                <div>
+                  <span>Status</span>
+                  <strong class:working={backupBusy}
+                    >{backupBusy
+                      ? "Saving…"
+                      : autoBackup.enabled
+                        ? "Active"
+                        : "Paused"}</strong
+                  >
+                </div>
+                <div>
+                  <span>Last saved</span>
+                  <strong
+                    >{formatBackupTimestamp(autoBackup.lastSavedAt)}</strong
+                  >
+                </div>
+                <div>
+                  <span>Next save</span>
+                  <strong
+                    >{autoBackup.nextSaveAt
+                      ? formatBackupTimestamp(autoBackup.nextSaveAt)
+                      : autoBackup.enabled && autoBackup.timing === "immediate"
+                        ? "After each change"
+                        : "No changes waiting"}</strong
+                  >
+                </div>
+              </div>
+
+              <fieldset class="backup-timing">
+                <legend>Save changes</legend>
+                <div class="segmented-setting">
+                  <button
+                    class:active={autoBackup.timing === "immediate"}
+                    aria-pressed={autoBackup.timing === "immediate"}
+                    onclick={() => setBackupTiming("immediate")}
+                    >Immediately</button
+                  >
+                  <button
+                    class:active={autoBackup.timing === "delayed"}
+                    aria-pressed={autoBackup.timing === "delayed"}
+                    onclick={() => setBackupTiming("delayed")}
+                    >After a delay</button
+                  >
+                </div>
+                {#if autoBackup.timing === "delayed"}
+                  <label class="backup-delay">
+                    <span>Delay after the latest change</span>
+                    <div>
+                      <input
+                        type="number"
+                        inputmode="numeric"
+                        min={minimumBackupDelayMinutes}
+                        max={maximumBackupDelayMinutes}
+                        step="1"
+                        value={autoBackup.delayMinutes}
+                        onchange={updateBackupDelay}
+                      />
+                      <span>minutes</span>
+                    </div>
+                    <small
+                      >{formatBackupDelay(autoBackup.delayMinutes)} · minimum 1 minute,
+                      maximum 24 hours</small
+                    >
+                    <small
+                      >If Android closes Pulse, an overdue backup runs the next
+                      time you open the app.</small
+                    >
+                  </label>
+                {/if}
+              </fieldset>
+
+              <div class="backup-option">
+                <div>
+                  <strong>Preserve the previous file</strong>
+                  <small
+                    >Before overwriting, copy the old ledger to <code
+                      >pulse-ledger.previous.json</code
+                    > in the same folder.</small
+                  >
+                </div>
+                <button
+                  class="settings-switch"
+                  class:active={autoBackup.preservePrevious}
+                  role="switch"
+                  aria-checked={autoBackup.preservePrevious}
+                  aria-label="Preserve previous backup"
+                  onclick={() =>
+                    setPreservePrevious(!autoBackup.preservePrevious)}
+                  ><span></span></button
+                >
+              </div>
+
+              <div class="backup-actions">
+                <button
+                  class="primary-backup-action"
+                  disabled={!backupFolderSelected || backupBusy}
+                  onclick={saveAutomaticBackupNow}
+                  ><Save size={17} /> Save now</button
+                >
+                {#if backupFolderSelected}<button
+                    class="remove-folder-access"
+                    onclick={removeAutomaticBackupAccess}
+                    >Remove folder access</button
+                  >{/if}
+              </div>
+
+              <p class="scoped-access-note">
+                <ShieldCheck size={15} /> Pulse can access only this selected folder.
+                No full-storage permission is requested.
+              </p>
+              {#if autoBackup.lastError}<p class="backup-error" role="alert">
+                  {autoBackup.lastError}
+                </p>{/if}
+            </section>{/if}
+
+          <section
+            class="settings-group transfer-settings"
+            aria-labelledby="data-heading"
+          >
             <header>
               <span><FileJson size={20} /></span>
               <div>
-                <h2 id="data-heading">App data</h2>
-                <p>Your programme stays on this device.</p>
+                <h2 id="data-heading">Transfer and restore</h2>
+                <p>
+                  Create a one-off copy or restore an existing Pulse ledger.
+                </p>
               </div>
             </header>
-            <input class="hidden-file-input" bind:this={importInput} type="file" accept="application/json,.json" onchange={readImport} />
+            <input
+              class="hidden-file-input"
+              bind:this={importInput}
+              type="file"
+              accept="application/json,.json"
+              onchange={readImport}
+            />
             <button class="settings-row" onclick={exportLedger}
-              ><Download size={20} /><span><strong>Export data</strong><small>Save your programme, exercises, and history</small></span><ChevronDown
-                size={18}
-              /></button
+              ><Download size={20} /><span
+                ><strong>Export data</strong><small
+                  >Save your programme and exercise library</small
+                ></span
+              ><ChevronDown size={18} /></button
             >
             <button class="settings-row" onclick={() => importInput.click()}
-              ><Upload size={20} /><span><strong>Import data</strong><small>Restore from a Pulse JSON backup</small></span><ChevronDown size={18} /></button
+              ><Upload size={20} /><span
+                ><strong>Import data</strong><small
+                  >Restore from a Pulse JSON backup</small
+                ></span
+              ><ChevronDown size={18} /></button
             >
 
             {#if pendingImport}
               <div class="import-confirm">
                 <p>Replace the data on this device with the selected backup?</p>
                 <div>
-                  <button onclick={() => (pendingImport = null)}>Cancel</button><button class="replace-data" onclick={applyImport}>Replace</button>
+                  <button onclick={() => (pendingImport = null)}>Cancel</button
+                  ><button class="replace-data" onclick={applyImport}
+                    >Replace</button
+                  >
                 </div>
               </div>
             {/if}
@@ -1346,8 +2752,12 @@
           </section>
         </div>
         <footer class="settings-footer">
-          <a href="https://github.com/nyxar77/Pulse" target="_blank" rel="noreferrer">
-            <Activity size={17} strokeWidth={2.4} />
+          <a
+            href="https://github.com/nyxar77/Pulse"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <PulseMark size={23} />
             <span>Pulse on GitHub</span>
             <ExternalLink size={14} />
           </a>
@@ -1392,13 +2802,25 @@
           </h2>
           <p aria-live="polite">
             {visibleExercises.length}
-            {showArchived ? "archived" : libraryMode === "manage" ? "available" : "to choose from"}
+            {showArchived
+              ? "archived"
+              : libraryMode === "manage"
+                ? "available"
+                : "to choose from"}
           </p>
         </div>
         <div class="vault-heading-actions">
-          {#if libraryMode === "manage"}<button class="create-exercise" onclick={openExerciseCreator}><Plus size={15} /><span>New exercise</span></button>{/if}
-          <button bind:this={vaultCloseButton} class="icon-button close-button" onclick={() => closeLibrary()} aria-label="Close exercise library" title="Close"
-            ><X size={18} strokeWidth={2.4} /></button
+          {#if libraryMode === "manage"}<button
+              class="create-exercise"
+              onclick={openExerciseCreator}
+              ><Plus size={15} /><span>New exercise</span></button
+            >{/if}
+          <button
+            bind:this={vaultCloseButton}
+            class="icon-button close-button"
+            onclick={() => closeLibrary()}
+            aria-label="Close exercise library"
+            title="Close"><X size={18} strokeWidth={2.4} /></button
           >
         </div>
       </header>
@@ -1420,12 +2842,22 @@
                 {editingExerciseId ? "Refine exercise" : "Save an exercise"}
               </h3>
             </div>
-            <button type="button" class="icon-button close-button" onclick={() => (exerciseEditorOpen = false)} aria-label="Close exercise editor" title="Close"
-              ><X size={18} strokeWidth={2.4} /></button
+            <button
+              type="button"
+              class="icon-button close-button"
+              onclick={() => (exerciseEditorOpen = false)}
+              aria-label="Close exercise editor"
+              title="Close"><X size={18} strokeWidth={2.4} /></button
             >
           </header>
           <div class="exercise-form-grid">
-            <label class="wide"><span>Name</span><input bind:value={exerciseDraft.name} placeholder="e.g. Half-kneeling press" maxlength="80" /></label>
+            <label class="wide"
+              ><span>Name</span><input
+                bind:value={exerciseDraft.name}
+                placeholder="e.g. Half-kneeling press"
+                maxlength="80"
+              /></label
+            >
             <div class="combo-field">
               <span>Muscles</span><TagCombobox
                 id="exercise-muscles"
@@ -1442,42 +2874,90 @@
                 placeholder="Type or open suggestions"
               />
             </div>
-            <label class="wide"><span>Personal tags</span><input bind:value={exerciseDraft.tags} placeholder="Lengthened, elbow-friendly, skill…" /></label>
             <label class="wide"
-              ><span>Instructions or cues</span><textarea bind:value={exerciseDraft.description} placeholder="Only shown when the exercise is expanded"
+              ><span>Personal tags</span><input
+                bind:value={exerciseDraft.tags}
+                placeholder="Lengthened, elbow-friendly, skill…"
+              /></label
+            >
+            <label class="wide"
+              ><span>Instructions or cues</span><textarea
+                bind:value={exerciseDraft.description}
+                placeholder="Only shown when the exercise is expanded"
               ></textarea></label
             >
-            <label class="wide"><span>Reference link · optional</span><input type="url" bind:value={exerciseDraft.guideUrl} placeholder="https://…" /></label>
             <label class="wide"
-              ><span>Image link · cached after first view</span><input type="url" bind:value={exerciseDraft.imageUrl} placeholder="https://…" /></label
+              ><span>Reference link · optional</span><input
+                type="url"
+                bind:value={exerciseDraft.guideUrl}
+                placeholder="https://…"
+              /></label
+            >
+            <label class="wide"
+              ><span>Image link · cached after first view</span><input
+                type="url"
+                bind:value={exerciseDraft.imageUrl}
+                placeholder="https://…"
+              /></label
             >
           </div>
           {#if exerciseFormError}<p class="exercise-form-error">
               {exerciseFormError}
             </p>{/if}
           {#if editingExercise}
-            <div class="exercise-editor-management" aria-label="Exercise management actions">
+            <div
+              class="exercise-editor-management"
+              aria-label="Exercise management actions"
+            >
               {#if deleteExerciseCandidateId === editingExercise.id}
                 <div class="editor-delete-confirm">
-                  <span>Delete this exercise from the library? Existing workout copies will stay.</span>
+                  <span
+                    >Delete this exercise from the library? Existing workout
+                    copies will stay.</span
+                  >
                   <div>
-                    <button type="button" onclick={() => (deleteExerciseCandidateId = null)}>Keep</button>
-                    <button type="button" onclick={() => deleteExerciseDefinition(editingExercise.id)}>Delete</button>
+                    <button
+                      type="button"
+                      onclick={() => (deleteExerciseCandidateId = null)}
+                      >Keep</button
+                    >
+                    <button
+                      type="button"
+                      onclick={() =>
+                        deleteExerciseDefinition(editingExercise.id)}
+                      >Delete</button
+                    >
                   </div>
                 </div>
               {:else}
-                <button type="button" onclick={() => duplicateExercise(editingExercise)}><Copy size={16} /><span>Duplicate</span></button>
-                <button type="button" onclick={() => toggleExerciseArchive(editingExercise)}
-                  >{#if editingExercise.archived}<ArchiveRestore size={16} /><span>Restore</span>{:else}<Archive size={16} /><span>Archive</span>{/if}</button
+                <button
+                  type="button"
+                  onclick={() => duplicateExercise(editingExercise)}
+                  ><Copy size={16} /><span>Duplicate</span></button
                 >
-                {#if editingExercise.custom}<button class="editor-delete" type="button" onclick={() => (deleteExerciseCandidateId = editingExercise.id)}
+                <button
+                  type="button"
+                  onclick={() => toggleExerciseArchive(editingExercise)}
+                  >{#if editingExercise.archived}<ArchiveRestore
+                      size={16}
+                    /><span>Restore</span>{:else}<Archive size={16} /><span
+                      >Archive</span
+                    >{/if}</button
+                >
+                {#if editingExercise.custom}<button
+                    class="editor-delete"
+                    type="button"
+                    onclick={() =>
+                      (deleteExerciseCandidateId = editingExercise.id)}
                     ><Trash2 size={16} /><span>Delete</span></button
                   >{/if}
               {/if}
             </div>
           {/if}
           <footer>
-            <button type="button" onclick={() => (exerciseEditorOpen = false)}>Cancel</button><button class="save-exercise" type="submit"
+            <button type="button" onclick={() => (exerciseEditorOpen = false)}
+              >Cancel</button
+            ><button class="save-exercise" type="submit"
               ><Save size={14} /> Save exercise</button
             >
           </footer>
@@ -1487,8 +2967,16 @@
       <div class="vault-tools">
         <div class="vault-search" role="search">
           <Search size={17} aria-hidden="true" />
-          <input aria-label="Search exercises" placeholder="Search names, tags, equipment" bind:value={search} />
-          {#if search}<button type="button" onclick={() => (search = "")} aria-label="Clear exercise search"><X size={16} /></button>{/if}
+          <input
+            aria-label="Search exercises"
+            placeholder="Search names, tags, equipment"
+            bind:value={search}
+          />
+          {#if search}<button
+              type="button"
+              onclick={() => (search = "")}
+              aria-label="Clear exercise search"><X size={16} /></button
+            >{/if}
           <button
             class:active={vaultFiltersOpen}
             class:filtered={selectedMuscle !== "All" || showArchived}
@@ -1503,23 +2991,41 @@
       </div>
 
       {#if vaultFiltersOpen}
-        <section class="vault-filter-panel" id="vault-filters" aria-label="Exercise filters">
+        <section
+          class="vault-filter-panel"
+          id="vault-filters"
+          aria-label="Exercise filters"
+        >
           <header>
             <div>
               <h3>Filters</h3>
               <p>
-                {libraryMode === "manage" ? "Muscle, tag, or archive status." : "Narrow the workout picker."}
+                {libraryMode === "manage"
+                  ? "Muscle, tag, or archive status."
+                  : "Narrow the workout picker."}
               </p>
             </div>
-            {#if selectedMuscle !== "All" || showArchived}<button type="button" onclick={clearVaultFilters}>Reset</button>{/if}
+            {#if selectedMuscle !== "All" || showArchived}<button
+                type="button"
+                onclick={clearVaultFilters}>Reset</button
+              >{/if}
           </header>
           {#if libraryMode === "manage"}
             <fieldset>
               <legend>Library</legend>
               <div class="vault-filter-mode">
-                <button class:active={!showArchived} type="button" aria-pressed={!showArchived} onclick={() => (showArchived = false)}>Active</button>
-                <button class:active={showArchived} type="button" aria-pressed={showArchived} onclick={() => (showArchived = true)} disabled={!archivedCount}
-                  >Archived · {archivedCount}</button
+                <button
+                  class:active={!showArchived}
+                  type="button"
+                  aria-pressed={!showArchived}
+                  onclick={() => (showArchived = false)}>Active</button
+                >
+                <button
+                  class:active={showArchived}
+                  type="button"
+                  aria-pressed={showArchived}
+                  onclick={() => (showArchived = true)}
+                  disabled={!archivedCount}>Archived · {archivedCount}</button
                 >
               </div>
             </fieldset>
@@ -1542,7 +3048,9 @@
               >{visibleExercises.length}
               {visibleExercises.length === 1 ? "result" : "results"}</span
             >
-            <button type="button" onclick={() => (vaultFiltersOpen = false)}>Done</button>
+            <button type="button" onclick={() => (vaultFiltersOpen = false)}
+              >Done</button
+            >
           </footer>
         </section>
       {/if}
@@ -1559,23 +3067,29 @@
                   {#each exercise.tags as tag}<span>{tag}</span>{/each}
                 </div>{/if}
             </div>
-            <div class="vault-item-actions">
-              {#if libraryMode === "manage"}
-                <button class="edit-from-vault" type="button" onclick={() => openExerciseEditor(exercise)}><Pencil size={16} /><span>Edit</span></button>
-              {:else if !exercise.archived}<button
-                  class:added={dayExercises.some((item) => item.id === exercise.id)}
-                  class="add-from-vault"
-                  type="button"
-                  onclick={() => addExercise(exercise)}
-                  disabled={dayExercises.some((item) => item.id === exercise.id)}
-                >
-                  {#if dayExercises.some((item) => item.id === exercise.id)}<Check size={15} /> Added{:else}<Plus size={15} /> Add{/if}
-                </button>{/if}
-            </div>
+            {#if libraryMode === "manage" || (!exercise.archived && !dayExercises.some((item) => item.id === exercise.id))}<div
+                class="vault-item-actions"
+              >
+                {#if libraryMode === "manage"}
+                  <button
+                    class="edit-from-vault"
+                    type="button"
+                    onclick={() => openExerciseEditor(exercise)}
+                    ><Pencil size={16} /><span>Edit</span></button
+                  >
+                {:else}<button
+                    class="add-from-vault"
+                    type="button"
+                    onclick={() => addExercise(exercise)}
+                    ><Plus size={15} /> Add
+                  </button>{/if}
+              </div>{/if}
           </article>
         {:else}
           <p class="vault-empty">
-            {libraryMode === "manage" ? "Nothing matches that search." : "No exercises match this picker."}
+            {libraryMode === "manage"
+              ? "Nothing matches that search."
+              : "No exercises match this picker."}
           </p>
         {/each}
       </div>

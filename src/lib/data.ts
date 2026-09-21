@@ -71,5 +71,4 @@ export const starterWorkout: WorkoutExercise[] = exerciseLibrary
     load: index === 0 ? "52.5 kg" : "—",
     rest: index === 0 ? "2 min" : "90 sec",
     note: index === 0 ? "Leave 1–2 reps in reserve." : "",
-    completed: false,
   }));

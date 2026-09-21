@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import "fake-indexeddb/auto";
-import { flushLedgerWrites, loadLedgerData, saveLedgerData, type StoredLedger } from "../src/lib/storage";
+import {
+  clearPendingBackupData,
+  flushLedgerWrites,
+  loadLedgerData,
+  loadPendingBackupData,
+  saveLedgerData,
+  savePendingBackupData,
+  type StoredLedger,
+} from "../src/lib/storage";
 
 class MemoryStorage implements Storage {
   #values = new Map<string, string>();
@@ -56,11 +64,44 @@ test("migrates the old local backup once and persists subsequent ledgers in Inde
     accent: "red",
     exercises: [],
     schedule: ["day-1", null, null, null, null, null, null],
-    history: {},
   };
   saveLedgerData(current);
   await flushLedgerWrites();
 
   expect(await loadLedgerData()).toEqual(current);
   expect(localStorage.getItem("pulse-ledger-v2")).toBeNull();
+});
+
+test("keeps only the latest queued ledger snapshot", async () => {
+  const base: StoredLedger = {
+    days: [{ id: "day-1", name: "Day" }],
+    workouts: { "day-1": [] },
+    activeDayId: "day-1",
+    theme: "mocha",
+    accent: "mauve",
+    exercises: [],
+    schedule: ["day-1", null, null, null, null, null, null],
+  };
+
+  saveLedgerData({ ...base, accent: "red" });
+  saveLedgerData({ ...base, accent: "blue" });
+  saveLedgerData({ ...base, accent: "green" });
+  await flushLedgerWrites();
+
+  expect(await loadLedgerData()).toEqual({ ...base, accent: "green" });
+});
+
+test("stores pending automatic backups outside localStorage", async () => {
+  const pending = {
+    contents: "{}",
+    fingerprint: "latest",
+    dueAt: "2026-09-22T10:00:00.000Z",
+    revision: 8,
+  };
+  await savePendingBackupData(pending);
+  expect(await loadPendingBackupData()).toEqual(pending);
+  expect(localStorage.length).toBe(0);
+
+  await clearPendingBackupData();
+  expect(await loadPendingBackupData()).toBeNull();
 });

@@ -6,7 +6,6 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#11111b",
   "theme_color": "#11111b",
   "categories": ["fitness", "lifestyle"],

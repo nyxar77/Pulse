@@ -17,7 +17,6 @@ export type WorkoutExercise = Exercise & {
   load: string;
   rest: string;
   note: string;
-  completed: boolean;
 };
 
 export type TrainingDay = {
@@ -26,5 +25,3 @@ export type TrainingDay = {
 };
 
 export type WeekSchedule = Array<string | null>;
-
-export type TrainingHistory = Record<string, string[]>;

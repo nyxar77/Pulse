@@ -6,13 +6,10 @@ AuthorName: nyxar77
 SourceCode: https://github.com/nyxar77/Pulse
 IssueTracker: https://github.com/nyxar77/Pulse/issues
 Changelog: https://github.com/nyxar77/Pulse/releases
-
 AutoName: Pulse
-
 RepoType: git
 Repo: https://github.com/nyxar77/Pulse.git
 Binaries: https://github.com/nyxar77/Pulse/releases/download/%v/Pulse-%v.apk
-
 Builds:
   - versionName: 0.1.3
     versionCode: 4
@@ -30,8 +27,6 @@ Builds:
     prebuild:
       - cd ../..
       - npm ci
-      - "sed -i 's/adapter: adapter(),/adapter: adapter(), version: { name: \"$$VERCODE$$\"\
-        \ },/' svelte.config.js"
     scanignore:
       - node_modules/@capacitor/cli/assets/capacitor-cordova-android-plugins.tar.gz
     scandelete:
@@ -46,9 +41,7 @@ Builds:
       - npm run build
       - npx cap sync android
       - popd
-
 AllowedAPKSigningKeys: ee3d16e34033a39c583cda01b6db00dd4fa4a6a5ad07023d3b7bfc877841ed65
-
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^[0-9]+\.[0-9]+\.[0-9]+$
 CurrentVersion: 0.1.3
