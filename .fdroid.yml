@@ -13,7 +13,7 @@ Binaries: https://github.com/nyxar77/Pulse/releases/download/%v/Pulse-%v.apk
 Builds:
   - versionName: 0.1.4
     versionCode: 5
-    commit: 5c010369886432fe032d5a0ac7a2762c0d8cd6bb
+    commit: 964a9ad15a36f640d785f8bc670796cca9844ccc
     subdir: android/app
     sudo:
       - echo "deb https://deb.debian.org/debian forky main" > /etc/apt/sources.list.d/forky.list
