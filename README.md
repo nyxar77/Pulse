@@ -1,49 +1,21 @@
+<p align="center">
+  <img src="assets/icon.svg" alt="Pulse icon" width="128">
+</p>
+
 # Pulse
 
-Pulse is a local-first weekly workout planner for Android and the web. It is built for people who want to define their own training split instead of fitting a preset routine.
+Pulse is a weekly workout planner for people who want to build their own routine and follow it at their own pace.
 
-## What it does
+## Features
 
-- Maps custom workouts onto the seven days of the week
-- Shows the workout that matches the device's current local date
-- Saves a reusable exercise library with muscles, equipment, notes, cached reference images, and guide links
-- Stores sets, reps, weight, and rest targets with drag-to-reorder priority
-- Keeps today's completed exercises locally until the day changes
-- Imports and exports the complete programme as JSON
-- Saves optional automatic backups to one Android folder selected through the system picker
-- Works offline and keeps programme data on the device
-- Supports all Catppuccin flavours and accents
-
-## Development
-
-The Nix flake provides Bun, Java 21, and the Android SDK.
-
-```sh
-nix develop
-bun install --frozen-lockfile
-bun run verify
-```
-
-Build the Android project with:
-
-```sh
-bun run mobile:sync
-cd android
-./gradlew assembleDebug
-```
-
-## Releases and F-Droid
-
-Release versions have three matching sources: `package.json`, `android/app/build.gradle`, and `.fdroid.yml`. Android `versionCode` must increase for every release, and its Fastlane changelog must be named `<versionCode>.txt`.
-
-Before tagging a release:
-
-```sh
-bun run release:check
-bun run verify
-```
-
-Tag the release with its exact version name, such as `0.1.2`. Publishing that tag as a GitHub release builds the signed upstream APK. The root `.fdroid.yml` is the F-Droid build recipe; copy it to `metadata/io.github.nyxar77.pulse.yml` in an `fdroiddata` fork when submitting the app.
+* Plan a workout for each day of the week
+* See today's workout as soon as you open the app
+* Build your own exercise library with muscles, equipment, notes, images, and helpful links
+* Set your reps, weight, rest time, and exercise order
+* Mark exercises as complete while you train
+* Back up, import, and export your programme
+* Use the app without an internet connection
+* Choose from Catppuccin themes and accent colours
 
 ## Privacy and license
 
