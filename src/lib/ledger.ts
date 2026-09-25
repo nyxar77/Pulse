@@ -1,5 +1,7 @@
 import type {
   Exercise,
+  LegacyWorkoutExercise,
+  SetGroup,
   TrainingDay,
   WeekSchedule,
   WorkoutExercise,
@@ -36,12 +38,12 @@ export type Theme = (typeof themes)[number];
 export type Accent = (typeof accents)[number];
 export type LedgerExport = {
   app: "pulse";
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   exportedAt: string;
   settings: { theme: Theme; accent: Accent };
   programme: {
     days: TrainingDay[];
-    workouts: Record<string, WorkoutExercise[]>;
+    workouts: Record<string, Array<WorkoutExercise | LegacyWorkoutExercise>>;
     schedule?: WeekSchedule;
   };
   library?: Exercise[];
@@ -163,13 +165,35 @@ export function moveItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
 }
 
 export function copyWorkout(
-  exercises: readonly WorkoutExercise[],
+  exercises: readonly (WorkoutExercise | LegacyWorkoutExercise)[],
 ): WorkoutExercise[] {
-  return exercises.map((exercise) => {
+  return exercises.map((exercise, exerciseIndex) => {
     const { completed: _legacyCompletion, ...persistentExercise } =
-      exercise as WorkoutExercise & { completed?: boolean };
+      exercise as (WorkoutExercise | LegacyWorkoutExercise) & {
+        completed?: boolean;
+      };
+    const groups =
+      "groups" in persistentExercise
+        ? persistentExercise.groups.map((group) => ({ ...group }))
+        : [
+            {
+              id: `${exercise.id}-group-${exerciseIndex + 1}`,
+              sets: persistentExercise.sets,
+              reps: persistentExercise.reps,
+              load: persistentExercise.load,
+              rest: persistentExercise.rest,
+            },
+          ];
+    const {
+      sets: _legacySets,
+      reps: _legacyReps,
+      load: _legacyLoad,
+      rest: _legacyRest,
+      ...definitionAndNote
+    } = persistentExercise as LegacyWorkoutExercise;
     return {
-      ...persistentExercise,
+      ...definitionAndNote,
+      groups,
       muscles: [...exercise.muscles],
       tags: exercise.tags ? [...exercise.tags] : undefined,
     };
@@ -190,7 +214,10 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
   if (
     !isRecord(value) ||
     value.app !== "pulse" ||
-    (value.version !== 1 && value.version !== 2 && value.version !== 3) ||
+    (value.version !== 1 &&
+      value.version !== 2 &&
+      value.version !== 3 &&
+      value.version !== 4) ||
     typeof value.exportedAt !== "string" ||
     !Number.isFinite(Date.parse(value.exportedAt)) ||
     !isRecord(value.settings) ||
@@ -231,14 +258,16 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
   const ids = days.map((day) => (day as TrainingDay).id);
   if (new Set(ids).size !== ids.length) return false;
   if (Object.keys(workouts).some((id) => !ids.includes(id))) return false;
+  const validatesWorkout =
+    value.version === 4 ? isWorkoutExercise : isLegacyWorkoutExercise;
   if (
     !ids.every(
       (id) =>
-        Array.isArray(workouts[id]) && workouts[id].every(isWorkoutExercise),
+        Array.isArray(workouts[id]) && workouts[id].every(validatesWorkout),
     )
   )
     return false;
-  if (value.version === 3) {
+  if (value.version === 3 || value.version === 4) {
     if (!isWeekSchedule(value.programme.schedule, ids)) return false;
     if (!Array.isArray(value.library) || !isExerciseLibrary(value.library))
       return false;
@@ -302,14 +331,42 @@ function isWeekSchedule(
 export function isWorkoutExercise(value: unknown): value is WorkoutExercise {
   if (!isExercise(value)) return false;
   const record = value as unknown as Record<string, unknown>;
-  const stringFields = ["reps", "load", "rest", "note"];
-  if (!stringFields.every((field) => typeof record[field] === "string"))
-    return false;
   return (
+    typeof record.note === "string" &&
+    Array.isArray(record.groups) &&
+    record.groups.length >= 1 &&
+    record.groups.every(isSetGroup) &&
+    new Set(record.groups.map((group) => (group as SetGroup).id)).size ===
+      record.groups.length &&
+    (record.completed === undefined || typeof record.completed === "boolean")
+  );
+}
+
+function isLegacyWorkoutExercise(
+  value: unknown,
+): value is LegacyWorkoutExercise {
+  if (!isExercise(value)) return false;
+  const record = value as unknown as Record<string, unknown>;
+  return (
+    ["reps", "load", "rest", "note"].every(
+      (field) => typeof record[field] === "string",
+    ) &&
     typeof record.sets === "number" &&
     Number.isInteger(record.sets) &&
     record.sets >= 1 &&
     (record.completed === undefined || typeof record.completed === "boolean")
+  );
+}
+
+function isSetGroup(value: unknown): value is SetGroup {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    value.id.trim().length > 0 &&
+    typeof value.sets === "number" &&
+    Number.isInteger(value.sets) &&
+    value.sets >= 1 &&
+    ["reps", "load", "rest"].every((field) => typeof value[field] === "string")
   );
 }
 

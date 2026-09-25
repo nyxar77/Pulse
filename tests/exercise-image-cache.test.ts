@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  clearExerciseImageCache,
+  exerciseImageAccessCacheName,
   exerciseImageCacheName,
+  exerciseImageLoadingEnabled,
   loadExerciseImage,
   maxCachedExerciseImages,
+  setExerciseImageLoading,
 } from "../src/lib/exercise-image-cache";
 
 class MemoryImageCache {
@@ -25,7 +29,60 @@ class MemoryImageCache {
   }
 }
 
+class MemoryCacheStorage {
+  caches = new Map<string, MemoryImageCache>();
+
+  async delete(name: string) {
+    return this.caches.delete(name);
+  }
+
+  async has(name: string) {
+    return this.caches.has(name);
+  }
+
+  async open(name: string) {
+    const existing = this.caches.get(name);
+    if (existing) return existing;
+    const cache = new MemoryImageCache();
+    this.caches.set(name, cache);
+    return cache;
+  }
+}
+
 describe("exercise image cache", () => {
+  test("requires an explicit device-local opt-in", async () => {
+    const storage = new MemoryCacheStorage();
+
+    expect(await exerciseImageLoadingEnabled(storage)).toBeFalse();
+    await setExerciseImageLoading(true, storage);
+    expect(await exerciseImageLoadingEnabled(storage)).toBeTrue();
+    expect(storage.caches.has(exerciseImageAccessCacheName)).toBeTrue();
+  });
+
+  test("disabling image loading removes only image caches", async () => {
+    const storage = new MemoryCacheStorage();
+    await storage.open("pulse-app-shell");
+    await storage.open(exerciseImageCacheName);
+    await setExerciseImageLoading(true, storage);
+
+    await setExerciseImageLoading(false, storage);
+
+    expect(storage.caches.has(exerciseImageAccessCacheName)).toBeFalse();
+    expect(storage.caches.has(exerciseImageCacheName)).toBeFalse();
+    expect(storage.caches.has("pulse-app-shell")).toBeTrue();
+  });
+
+  test("clears downloaded images without disabling future downloads", async () => {
+    const storage = new MemoryCacheStorage();
+    await setExerciseImageLoading(true, storage);
+    await storage.open(exerciseImageCacheName);
+
+    await clearExerciseImageCache(storage);
+
+    expect(await exerciseImageLoadingEnabled(storage)).toBeTrue();
+    expect(storage.caches.has(exerciseImageCacheName)).toBeFalse();
+  });
+
   test("uses the cached image without another request", async () => {
     const cache = new MemoryImageCache();
     const request = new Request("https://example.com/press.webp");

@@ -17,6 +17,10 @@
   } from "$lib/backup";
   import { exerciseLibrary, starterWorkout } from "$lib/data";
   import {
+    clearExerciseImageCache,
+    setExerciseImageLoading,
+  } from "$lib/exercise-image-cache";
+  import {
     accents,
     copyWorkout,
     isExercise,
@@ -59,6 +63,7 @@
   } from "$lib/storage";
   import type {
     Exercise,
+    SetGroup,
     TrainingDay,
     WeekSchedule,
     WorkoutExercise,
@@ -80,6 +85,7 @@
   import FolderLock from "lucide-svelte/icons/folder-lock";
   import FolderOpen from "lucide-svelte/icons/folder-open";
   import GripVertical from "lucide-svelte/icons/grip-vertical";
+  import ImageIcon from "lucide-svelte/icons/image";
   import LibraryBig from "lucide-svelte/icons/library-big";
   import ListFilter from "lucide-svelte/icons/list-filter";
   import Minus from "lucide-svelte/icons/minus";
@@ -121,6 +127,7 @@
   const mobileVaultQuery =
     "(max-width: 600px), (max-width: 900px) and (max-height: 520px) and (orientation: landscape)";
   const autoBackupPreferencesKey = "pulse-auto-backup-v1";
+  const exerciseImagePreferenceKey = "pulse-online-exercise-images-v1";
   const legacyPendingBackupKey = "pulse-auto-backup-pending-v1";
   const todayCompletionCacheKey = "pulse-today-completion-v1";
   const automaticBackupFilename = "pulse-ledger.json";
@@ -210,6 +217,10 @@
   let backupReady = false;
   let backupSuspended = false;
   let nativePlatform = false;
+  let onlineExerciseImages = false;
+  let imageSettingsBusy = false;
+  let imageSettingsMessage = "";
+  let imageSettingsError = false;
 
   $: availableGroups = [
     "All",
@@ -364,6 +375,14 @@
 
   async function hydrateLedger() {
     const saved = await loadLedgerData();
+    onlineExerciseImages = readExerciseImagePreference(saved !== null);
+    persistExerciseImagePreference();
+    await setExerciseImageLoading(onlineExerciseImages).catch(() => {
+      imageSettingsError = true;
+      imageSettingsMessage = onlineExerciseImages
+        ? "Image access could not be enabled on this device."
+        : "Some cached images could not be removed.";
+    });
     if (saved) {
       try {
         const parsed = saved as Partial<{
@@ -404,6 +423,68 @@
     }
     lastBackupFingerprint = ledgerFingerprint(currentStoredLedger());
     hydrated = true;
+  }
+
+  function readExerciseImagePreference(existingUser: boolean): boolean {
+    try {
+      const stored = localStorage.getItem(exerciseImagePreferenceKey);
+      return stored === null ? existingUser : stored === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  function persistExerciseImagePreference() {
+    try {
+      localStorage.setItem(
+        exerciseImagePreferenceKey,
+        String(onlineExerciseImages),
+      );
+    } catch {
+      // Keep the preference for this session when local storage is unavailable.
+    }
+  }
+
+  async function setOnlineExerciseImages(enabled: boolean) {
+    if (imageSettingsBusy || enabled === onlineExerciseImages) return;
+    imageSettingsBusy = true;
+    imageSettingsMessage = "";
+    imageSettingsError = false;
+    if (!enabled) onlineExerciseImages = false;
+    persistExerciseImagePreference();
+    try {
+      await setExerciseImageLoading(enabled);
+      onlineExerciseImages = enabled;
+      persistExerciseImagePreference();
+      imageSettingsMessage = enabled
+        ? "Online exercise images enabled."
+        : "Online exercise images disabled and cached images removed.";
+    } catch {
+      if (enabled) onlineExerciseImages = false;
+      persistExerciseImagePreference();
+      imageSettingsError = true;
+      imageSettingsMessage = enabled
+        ? "Image access could not be enabled on this device."
+        : "Images are disabled, but some cached files could not be removed.";
+    } finally {
+      imageSettingsBusy = false;
+    }
+  }
+
+  async function clearCachedExerciseImages() {
+    if (imageSettingsBusy) return;
+    imageSettingsBusy = true;
+    imageSettingsMessage = "";
+    imageSettingsError = false;
+    try {
+      await clearExerciseImageCache();
+      imageSettingsMessage = "Cached exercise images removed.";
+    } catch {
+      imageSettingsError = true;
+      imageSettingsMessage = "Cached exercise images could not be removed.";
+    } finally {
+      imageSettingsBusy = false;
+    }
   }
 
   function createFixedWeekDays(): TrainingDay[] {
@@ -642,26 +723,47 @@
     programmeMessage = `${activeDayName} cleared.`;
   }
 
-  function adjustSets(exercise: WorkoutExercise, delta: number) {
-    exercise.sets = Math.min(
-      20,
-      Math.max(1, Math.round(exercise.sets + delta)),
-    );
+  function createSetGroup(source?: SetGroup): SetGroup {
+    return {
+      id: `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      sets: source?.sets ?? 3,
+      reps: source?.reps ?? "8–12",
+      load: source?.load ?? "—",
+      rest: source?.rest ?? "90 sec",
+    };
+  }
+
+  function addSetGroup(exercise: WorkoutExercise) {
+    exercise.groups = [
+      ...exercise.groups,
+      createSetGroup(exercise.groups.at(-1)),
+    ];
     touch();
   }
 
-  function adjustWeight(exercise: WorkoutExercise, delta: number) {
-    exercise.load = stepWeight(exercise.load, delta);
+  function removeSetGroup(exercise: WorkoutExercise, groupId: string) {
+    if (exercise.groups.length === 1) return;
+    exercise.groups = exercise.groups.filter((group) => group.id !== groupId);
     touch();
   }
 
-  function updateWeightInput(exercise: WorkoutExercise, event: Event) {
-    exercise.load = (event.currentTarget as HTMLInputElement).value;
+  function adjustSets(group: SetGroup, delta: number) {
+    group.sets = Math.min(20, Math.max(1, Math.round(group.sets + delta)));
     touch();
   }
 
-  function settleWeight(exercise: WorkoutExercise) {
-    exercise.load = normaliseWeight(exercise.load);
+  function adjustWeight(group: SetGroup, delta: number) {
+    group.load = stepWeight(group.load, delta);
+    touch();
+  }
+
+  function updateWeightInput(group: SetGroup, event: Event) {
+    group.load = (event.currentTarget as HTMLInputElement).value;
+    touch();
+  }
+
+  function settleWeight(group: SetGroup) {
+    group.load = normaliseWeight(group.load);
     touch();
   }
 
@@ -671,10 +773,7 @@
       ...dayExercises,
       {
         ...exercise,
-        sets: 3,
-        reps: "8–12",
-        load: "—",
-        rest: "90 sec",
+        groups: [createSetGroup()],
         note: "",
       },
     ];
@@ -1082,7 +1181,7 @@
     );
     return {
       app: "pulse",
-      version: 3,
+      version: 4,
       exportedAt: new Date().toISOString(),
       settings: {
         theme: ledger.theme as Theme,
@@ -1605,7 +1704,7 @@
       Object.fromEntries(
         Object.entries(imported.programme.workouts).map(([id, exercises]) => [
           id,
-          exercises.map((exercise) => ({ ...exercise })),
+          copyWorkout(exercises),
         ]),
       ),
     );
@@ -1995,18 +2094,25 @@
                         {exercise.muscles.join(" · ")} · {exercise.equipment}
                       </p>
                     </div>
-                    <div class="exercise-dose">
-                      <strong
-                        >{exercise.sets} × {weightLabel(
-                          exercise.load,
-                        )}{#if parseWeight(exercise.load) !== null}
-                          kg{/if}</strong
+                    {#if exercise.groups.length === 1}
+                      {@const group = exercise.groups[0]}
+                      <div class="exercise-dose">
+                        <strong
+                          >{group.sets} × {weightLabel(
+                            group.load,
+                          )}{#if parseWeight(group.load) !== null}
+                            kg{/if}</strong
+                        >
+                        <span
+                          >{group.reps || "Open"} reps{#if group.rest && group.rest !== "—"}
+                            · {group.rest}{/if}</span
+                        >
+                      </div>
+                    {:else}
+                      <span class="set-group-count"
+                        >{exercise.groups.length} groups</span
                       >
-                      <span
-                        >{exercise.reps || "Open"} reps{#if exercise.rest && exercise.rest !== "—"}
-                          · {exercise.rest}{/if}</span
-                      >
-                    </div>
+                    {/if}
                     <button
                       class="row-action"
                       onclick={() => toggleExpanded(exercise.id)}
@@ -2018,13 +2124,33 @@
                       /></button
                     >
                   </div>
+                  {#if exercise.groups.length > 1}
+                    <div
+                      class="today-set-groups"
+                      aria-label={`${exercise.name} set groups`}
+                    >
+                      {#each exercise.groups as group, groupIndex (group.id)}
+                        <div class="today-set-group">
+                          <span>{String(groupIndex + 1).padStart(2, "0")}</span>
+                          <strong>{group.sets} × {group.reps || "open"}</strong>
+                          <b
+                            >{weightLabel(
+                              group.load,
+                            )}{#if parseWeight(group.load) !== null}
+                              kg{/if}</b
+                          >
+                          <small>{group.rest || "No rest"}</small>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
                   {#if expanded.has(exercise.id)}
                     <div
                       class="exercise-details"
                       in:slide={{ duration: 170 }}
                       out:slide={{ duration: 130 }}
                     >
-                      {#if exercise.imageUrl}<img
+                      {#if onlineExerciseImages && exercise.imageUrl}<img
                           src={exercise.imageUrl}
                           alt={`Reference for ${exercise.name}`}
                           loading="lazy"
@@ -2322,94 +2448,144 @@
 
                       {#if !reorderMode}
                         {#if editMode}
-                          <div class="prescription-editor">
-                            <div class="prescription-control sets-control">
-                              <span class="control-label">Sets</span>
-                              <div class="number-stepper">
-                                <button
-                                  onclick={() => adjustSets(exercise, -1)}
-                                  disabled={exercise.sets <= 1}
-                                  aria-label={`Decrease sets for ${exercise.name}`}
-                                  ><Minus size={16} /></button
-                                ><strong>{exercise.sets}</strong><button
-                                  onclick={() => adjustSets(exercise, 1)}
-                                  disabled={exercise.sets >= 20}
-                                  aria-label={`Increase sets for ${exercise.name}`}
-                                  ><Plus size={16} /></button
-                                >
-                              </div>
-                            </div>
-                            <div class="prescription-control weight-control">
-                              <span class="control-label">Weight · ±2.5 kg</span
-                              >
-                              <div class="weight-stepper">
-                                <button
-                                  onclick={() => adjustWeight(exercise, -2.5)}
-                                  disabled={parseWeight(exercise.load) === null}
-                                  aria-label={`Decrease weight for ${exercise.name} by 2.5 kilograms`}
-                                  ><Minus size={16} /></button
-                                ><label
-                                  ><input
-                                    type="number"
-                                    min="0"
-                                    step="0.5"
-                                    inputmode="decimal"
-                                    value={weightInputValue(exercise.load)}
-                                    placeholder="0"
-                                    oninput={(event) =>
-                                      updateWeightInput(exercise, event)}
-                                    onblur={() => settleWeight(exercise)}
-                                    aria-label={`Weight for ${exercise.name} in kilograms`}
-                                  /><span>kg</span></label
-                                ><button
-                                  onclick={() => adjustWeight(exercise, 2.5)}
-                                  aria-label={`Increase weight for ${exercise.name} by 2.5 kilograms`}
-                                  ><Plus size={16} /></button
-                                >
-                              </div>
-                            </div>
-                            <label class="text-prescription"
-                              ><span>Rep range</span><input
-                                bind:value={exercise.reps}
-                                oninput={touch}
-                                placeholder="8–12"
-                              /></label
-                            >
-                            <label class="text-prescription"
-                              ><span>Rest</span><input
-                                bind:value={exercise.rest}
-                                oninput={touch}
-                                placeholder="90 sec"
-                              /></label
+                          <div
+                            class:multiple={exercise.groups.length > 1}
+                            class="prescription-editor"
+                          >
+                            {#each exercise.groups as group, groupIndex (group.id)}
+                              <section class="set-group-editor">
+                                {#if exercise.groups.length > 1}<header>
+                                    <div>
+                                      <span>Set group {groupIndex + 1}</span>
+                                      <small>Performed in this order</small>
+                                    </div>
+                                    <button
+                                      class="remove-set-group"
+                                      type="button"
+                                      onclick={() =>
+                                        removeSetGroup(exercise, group.id)}
+                                      aria-label={`Remove set group ${groupIndex + 1} from ${exercise.name}`}
+                                      ><Trash2 size={15} /></button
+                                    >
+                                  </header>{/if}
+                                <div class="set-group-controls">
+                                  <div
+                                    class="prescription-control sets-control"
+                                  >
+                                    <span class="control-label">Sets</span>
+                                    <div class="number-stepper">
+                                      <button
+                                        onclick={() => adjustSets(group, -1)}
+                                        disabled={group.sets <= 1}
+                                        aria-label={`Decrease sets in group ${groupIndex + 1} for ${exercise.name}`}
+                                        ><Minus size={16} /></button
+                                      ><strong>{group.sets}</strong><button
+                                        onclick={() => adjustSets(group, 1)}
+                                        disabled={group.sets >= 20}
+                                        aria-label={`Increase sets in group ${groupIndex + 1} for ${exercise.name}`}
+                                        ><Plus size={16} /></button
+                                      >
+                                    </div>
+                                  </div>
+                                  <div
+                                    class="prescription-control weight-control"
+                                  >
+                                    <span class="control-label"
+                                      >Weight · ±2.5 kg</span
+                                    >
+                                    <div class="weight-stepper">
+                                      <button
+                                        onclick={() =>
+                                          adjustWeight(group, -2.5)}
+                                        disabled={parseWeight(group.load) ===
+                                          null}
+                                        aria-label={`Decrease weight in group ${groupIndex + 1} for ${exercise.name} by 2.5 kilograms`}
+                                        ><Minus size={16} /></button
+                                      ><label
+                                        ><input
+                                          type="number"
+                                          min="0"
+                                          step="0.5"
+                                          inputmode="decimal"
+                                          value={weightInputValue(group.load)}
+                                          placeholder="0"
+                                          oninput={(event) =>
+                                            updateWeightInput(group, event)}
+                                          onblur={() => settleWeight(group)}
+                                          aria-label={`Weight in group ${groupIndex + 1} for ${exercise.name} in kilograms`}
+                                        /><span>kg</span></label
+                                      ><button
+                                        onclick={() => adjustWeight(group, 2.5)}
+                                        aria-label={`Increase weight in group ${groupIndex + 1} for ${exercise.name} by 2.5 kilograms`}
+                                        ><Plus size={16} /></button
+                                      >
+                                    </div>
+                                  </div>
+                                  <label class="text-prescription"
+                                    ><span>Rep range</span><input
+                                      bind:value={group.reps}
+                                      oninput={touch}
+                                      placeholder="8–12"
+                                    /></label
+                                  >
+                                  <label class="text-prescription"
+                                    ><span>Rest</span><input
+                                      bind:value={group.rest}
+                                      oninput={touch}
+                                      placeholder="90 sec"
+                                    /></label
+                                  >
+                                </div>
+                              </section>
+                            {/each}
+                            <button
+                              class="add-set-group"
+                              type="button"
+                              onclick={() => addSetGroup(exercise)}
+                              ><Plus size={16} /> Add set group</button
                             >
                           </div>
                         {:else}
-                          <div class="prescription-readout">
-                            <p class="primary-prescription">
-                              <span>Sets × load</span>
-                              <strong
-                                >{exercise.sets}<b aria-hidden="true">×</b
-                                >{weightLabel(
-                                  exercise.load,
-                                )}{#if parseWeight(exercise.load) !== null}<small
-                                    >kg</small
-                                  >{/if}</strong
-                              >
-                            </p>
-                            <div class="secondary-prescription">
-                              <p class="reps-readout">
-                                <span>Reps</span><strong
-                                  >{exercise.reps || "Open"}</strong
-                                >
-                              </p>
-                              {#if exercise.rest && exercise.rest !== "—"}<p
-                                  class="rest-readout"
-                                >
-                                  <span>Rest</span><strong
-                                    >{exercise.rest}</strong
+                          <div
+                            class:multiple={exercise.groups.length > 1}
+                            class="prescription-readout"
+                          >
+                            {#each exercise.groups as group, groupIndex (group.id)}
+                              <div class="prescription-group-row">
+                                {#if exercise.groups.length > 1}<span
+                                    class="prescription-group-index"
+                                    >{String(groupIndex + 1).padStart(
+                                      2,
+                                      "0",
+                                    )}</span
+                                  >{/if}
+                                <p class="primary-prescription">
+                                  <span>Sets × load</span>
+                                  <strong
+                                    >{group.sets}<b aria-hidden="true">×</b
+                                    >{weightLabel(
+                                      group.load,
+                                    )}{#if parseWeight(group.load) !== null}<small
+                                        >kg</small
+                                      >{/if}</strong
                                   >
-                                </p>{/if}
-                            </div>
+                                </p>
+                                <div class="secondary-prescription">
+                                  <p class="reps-readout">
+                                    <span>Reps</span><strong
+                                      >{group.reps || "Open"}</strong
+                                    >
+                                  </p>
+                                  {#if group.rest && group.rest !== "—"}<p
+                                      class="rest-readout"
+                                    >
+                                      <span>Rest</span><strong
+                                        >{group.rest}</strong
+                                      >
+                                    </p>{/if}
+                                </div>
+                              </div>
+                            {/each}
                           </div>
                         {/if}
                       {/if}
@@ -2421,7 +2597,7 @@
                           in:slide={{ duration: 170 }}
                           out:slide={{ duration: 130 }}
                         >
-                          {#if exercise.imageUrl}
+                          {#if onlineExerciseImages && exercise.imageUrl}
                             <figure class="movement-media">
                               <img
                                 src={exercise.imageUrl}
@@ -2539,6 +2715,60 @@
                 {/each}
               </div>
             </fieldset>
+          </section>
+
+          <section
+            class="settings-group image-settings"
+            aria-labelledby="image-settings-heading"
+          >
+            <header>
+              <span><ImageIcon size={20} /></span>
+              <div>
+                <h2 id="image-settings-heading">Exercise images</h2>
+                <p>Control the only content Pulse downloads from the web.</p>
+              </div>
+            </header>
+
+            <div class="image-access-option">
+              <div>
+                <strong>Online exercise images</strong>
+                <small
+                  >Download exercise images and keep them available offline.</small
+                >
+              </div>
+              <button
+                class="settings-switch"
+                class:active={onlineExerciseImages}
+                role="switch"
+                aria-checked={onlineExerciseImages}
+                aria-label="Online exercise images"
+                disabled={imageSettingsBusy}
+                onclick={() => setOnlineExerciseImages(!onlineExerciseImages)}
+                ><span></span></button
+              >
+            </div>
+
+            <div class="image-settings-detail">
+              <p>
+                {onlineExerciseImages
+                  ? "Pulse contacts an image host only when an uncached exercise image is shown."
+                  : "Pulse won’t contact image hosts. Image links remain saved for later."}
+              </p>
+              {#if onlineExerciseImages}<button
+                  type="button"
+                  disabled={imageSettingsBusy}
+                  onclick={clearCachedExerciseImages}
+                  >Clear cached images</button
+                >{/if}
+            </div>
+
+            {#if imageSettingsMessage}<p
+                class:error={imageSettingsError}
+                class="image-settings-message"
+                aria-live="polite"
+              >
+                {imageSettingsMessage}
+              </p>{/if}
           </section>
 
           {#if nativePlatform}<section
@@ -2894,11 +3124,18 @@
               /></label
             >
             <label class="wide"
-              ><span>Image link · cached after first view</span><input
+              ><span
+                >Image link · {onlineExerciseImages
+                  ? "cached after first view"
+                  : "online images off"}</span
+              ><input
                 type="url"
                 bind:value={exerciseDraft.imageUrl}
                 placeholder="https://…"
-              /></label
+              />{#if !onlineExerciseImages}<small class="image-setting-hint"
+                  >The link stays saved. Enable online exercise images in
+                  Settings to load it.</small
+                >{/if}</label
             >
           </div>
           {#if exerciseFormError}<p class="exercise-form-error">

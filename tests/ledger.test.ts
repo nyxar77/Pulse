@@ -23,6 +23,25 @@ const exercise = {
   equipment: "Barbell",
   guideUrl: "https://example.com/press",
   description: "Controlled press.",
+  groups: [
+    {
+      id: "press-group-1",
+      sets: 3,
+      reps: "8–10",
+      load: "50",
+      rest: "90 sec",
+    },
+  ],
+  note: "",
+};
+
+const legacyExercise = {
+  id: "press",
+  name: "Press",
+  muscles: ["Chest"],
+  equipment: "Barbell",
+  guideUrl: "https://example.com/press",
+  description: "Controlled press.",
   sets: 3,
   reps: "8–10",
   load: "50",
@@ -33,7 +52,7 @@ const exercise = {
 function ledger(overrides: Record<string, unknown> = {}) {
   return {
     app: "pulse",
-    version: 3,
+    version: 4,
     exportedAt: "2026-08-04T00:00:00.000Z",
     settings: { theme: "mocha", accent: "mauve" },
     programme: {
@@ -127,6 +146,31 @@ describe("programme ordering", () => {
     expect(copied[0]).not.toBe(original[0]);
     expect(copied[0].muscles).not.toBe(original[0].muscles);
     expect(copied[0].tags).not.toBe(original[0].tags);
+    expect(copied[0].groups).not.toBe(original[0].groups);
+    expect(copied[0].groups[0]).not.toBe(original[0].groups[0]);
+  });
+
+  test("migrates a legacy prescription into one set group", () => {
+    expect(copyWorkout([legacyExercise])).toEqual([
+      {
+        id: "press",
+        name: "Press",
+        muscles: ["Chest"],
+        equipment: "Barbell",
+        guideUrl: "https://example.com/press",
+        description: "Controlled press.",
+        note: "",
+        groups: [
+          {
+            id: "press-group-1",
+            sets: 3,
+            reps: "8–10",
+            load: "50",
+            rest: "90 sec",
+          },
+        ],
+      },
+    ]);
   });
 
   test("supports direct touch reordering without mutating the previous list", () => {
@@ -145,6 +189,20 @@ describe("programme ordering", () => {
 describe("ledger imports", () => {
   test("accepts a complete Pulse backup", () => {
     expect(isLedgerExport(ledger())).toBeTrue();
+  });
+
+  test("accepts a v3 backup with a flat prescription", () => {
+    expect(
+      isLedgerExport({
+        ...ledger(),
+        version: 3,
+        programme: {
+          ...ledger().programme,
+          workouts: { "day-1": [legacyExercise] },
+        },
+        library: [legacyExercise],
+      }),
+    ).toBeTrue();
   });
 
   test("rejects missing days, duplicate ids, and unsafe media links", () => {
@@ -184,7 +242,7 @@ describe("ledger imports", () => {
     ).toBeFalse();
   });
 
-  test("requires every v3 workout exercise to exist in the library", () => {
+  test("requires every current workout exercise to exist in the library", () => {
     expect(isLedgerExport(ledger({ library: [] }))).toBeFalse();
     expect(
       isLedgerExport(
@@ -220,7 +278,55 @@ describe("ledger imports", () => {
         ledger({
           programme: {
             ...ledger().programme,
-            workouts: { "day-1": [{ ...exercise, sets: 2.5 }] },
+            workouts: {
+              "day-1": [
+                {
+                  ...exercise,
+                  groups: [{ ...exercise.groups[0], sets: 2.5 }],
+                },
+              ],
+            },
+          },
+        }),
+      ),
+    ).toBeFalse();
+  });
+
+  test("accepts ordered set groups and rejects duplicate group ids", () => {
+    const secondGroup = {
+      ...exercise.groups[0],
+      id: "press-group-2",
+      sets: 1,
+      reps: "1",
+      load: "70",
+    };
+    expect(
+      isLedgerExport(
+        ledger({
+          programme: {
+            ...ledger().programme,
+            workouts: {
+              "day-1": [
+                { ...exercise, groups: [secondGroup, exercise.groups[0]] },
+              ],
+            },
+          },
+        }),
+      ),
+    ).toBeTrue();
+    expect(
+      isLedgerExport(
+        ledger({
+          programme: {
+            ...ledger().programme,
+            workouts: {
+              "day-1": [
+                {
+                  ...exercise,
+                  groups: [exercise.groups[0], exercise.groups[0]],
+                },
+              ],
+            },
           },
         }),
       ),

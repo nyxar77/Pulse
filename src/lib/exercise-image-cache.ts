@@ -1,4 +1,5 @@
 export const exerciseImageCacheName = "pulse-exercise-images-v1";
+export const exerciseImageAccessCacheName = "pulse-exercise-images-enabled-v1";
 export const maxCachedExerciseImages = 40;
 
 type ExerciseImageCache = Pick<Cache, "delete" | "keys" | "match" | "put">;
@@ -7,7 +8,43 @@ type ExerciseImageCacheStorage = {
   open(name: string): Promise<ExerciseImageCache>;
 };
 
+type ExerciseImagePreferenceStorage = {
+  delete(name: string): Promise<boolean>;
+  has(name: string): Promise<boolean>;
+  open(name: string): Promise<unknown>;
+};
+
+type ExerciseImageCacheDeletionStorage = {
+  delete(name: string): Promise<boolean>;
+};
+
 type ExerciseImageFetcher = (request: Request) => Promise<Response>;
+
+export async function exerciseImageLoadingEnabled(
+  cacheStorage: ExerciseImagePreferenceStorage = caches,
+): Promise<boolean> {
+  return cacheStorage.has(exerciseImageAccessCacheName);
+}
+
+export async function setExerciseImageLoading(
+  enabled: boolean,
+  cacheStorage: ExerciseImagePreferenceStorage = caches,
+): Promise<void> {
+  if (enabled) {
+    await cacheStorage.open(exerciseImageAccessCacheName);
+    return;
+  }
+  await Promise.all([
+    cacheStorage.delete(exerciseImageAccessCacheName),
+    cacheStorage.delete(exerciseImageCacheName),
+  ]);
+}
+
+export async function clearExerciseImageCache(
+  cacheStorage: ExerciseImageCacheDeletionStorage = caches,
+): Promise<void> {
+  await cacheStorage.delete(exerciseImageCacheName);
+}
 
 export async function loadExerciseImage(
   request: Request,

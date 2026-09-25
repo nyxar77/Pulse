@@ -11,7 +11,20 @@ export type Exercise = {
   archived?: boolean;
 };
 
+export type SetGroup = {
+  id: string;
+  sets: number;
+  reps: string;
+  load: string;
+  rest: string;
+};
+
 export type WorkoutExercise = Exercise & {
+  groups: SetGroup[];
+  note: string;
+};
+
+export type LegacyWorkoutExercise = Exercise & {
   sets: number;
   reps: string;
   load: string;

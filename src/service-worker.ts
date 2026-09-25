@@ -2,7 +2,9 @@
 
 import { build, files, prerendered, version } from "$service-worker";
 import {
+  exerciseImageAccessCacheName,
   exerciseImageCacheName,
+  exerciseImageLoadingEnabled,
   loadExerciseImage,
 } from "$lib/exercise-image-cache";
 
@@ -35,7 +37,8 @@ worker.addEventListener("activate", (event) => {
                 (key) =>
                   key.startsWith("pulse-") &&
                   key !== cacheName &&
-                  key !== exerciseImageCacheName,
+                  key !== exerciseImageCacheName &&
+                  key !== exerciseImageAccessCacheName,
               )
               .map((key) => caches.delete(key)),
           ),
@@ -55,7 +58,11 @@ worker.addEventListener("fetch", (event) => {
       request.destination === "image" &&
       (url.protocol === "https:" || url.protocol === "http:")
     ) {
-      event.respondWith(loadExerciseImage(request));
+      event.respondWith(
+        exerciseImageLoadingEnabled().then((enabled) =>
+          enabled ? loadExerciseImage(request) : Response.error(),
+        ),
+      );
     }
     return;
   }
