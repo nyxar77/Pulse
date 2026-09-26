@@ -1,0 +1,1 @@
+Added 72 built-in exercises, detailed front and back muscle maps with male and female body options, and a mobile-friendly exercise preview. Exercises now support separate set groups with their own reps, weight, and rest. Online exercise images are opt-in with local cache controls. Also improves the Latte light theme and fixes exercise-picker layout issues.

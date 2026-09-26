@@ -11,9 +11,9 @@ RepoType: git
 Repo: https://github.com/nyxar77/Pulse.git
 Binaries: https://github.com/nyxar77/Pulse/releases/download/%v/Pulse-%v.apk
 Builds:
-  - versionName: 0.1.4
-    versionCode: 5
-    commit: 964a9ad15a36f640d785f8bc670796cca9844ccc
+  - versionName: 0.1.5
+    versionCode: 6
+    commit: 2e15e007f859bd32db7cbcd2f297ce2050e3606b
     subdir: android/app
     sudo:
       - echo "deb https://deb.debian.org/debian forky main" > /etc/apt/sources.list.d/forky.list
@@ -44,5 +44,5 @@ Builds:
 AllowedAPKSigningKeys: ee3d16e34033a39c583cda01b6db00dd4fa4a6a5ad07023d3b7bfc877841ed65
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^[0-9]+\.[0-9]+\.[0-9]+$
-CurrentVersion: 0.1.4
-CurrentVersionCode: 5
+CurrentVersion: 0.1.5
+CurrentVersionCode: 6
