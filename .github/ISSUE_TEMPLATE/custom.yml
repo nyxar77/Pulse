@@ -1,0 +1,35 @@
+name: Custom request
+description: Submit a request that does not fit the other forms
+title: "[Request]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: Use this form only when the bug, feature, and suggestion forms do not apply.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Summarize the request in one sentence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Explain the request and the expected outcome.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched open and closed issues for duplicates.
+          required: true
+        - label: This request covers one topic and does not fit the other forms.
+          required: true

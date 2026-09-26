@@ -1,0 +1,34 @@
+name: Suggestion
+description: Share a general idea, UX improvement, or discussion topic
+title: "[Suggestion]: "
+labels:
+  - question
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your suggestion
+      description: Explain your idea and what could be improved.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why would this be useful?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, screenshots, or references if useful.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched for a similar suggestion before opening this one.
+          required: true
