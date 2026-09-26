@@ -41,6 +41,8 @@
     "@capacitor/share": "^8.0.1",
     "@capacitor/status-bar": "^8.0.3",
     "@material/web": "2.4.1",
+    "@musclemap/assets": "^1.0.0",
+    "@musclemap/core": "^1.0.0",
     "lucide-svelte": "^1.0.1"
   }
 }

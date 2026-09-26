@@ -1,6 +1,7 @@
 <script lang="ts">
   import { browser } from "$app/environment";
   import AutocompleteInput from "$lib/components/AutocompleteInput.svelte";
+  import MuscleMap from "$lib/components/MuscleMap.svelte";
   import PulseMark from "$lib/components/PulseMark.svelte";
   import TagCombobox from "$lib/components/TagCombobox.svelte";
   import {
@@ -16,6 +17,12 @@
     type PendingBackup,
   } from "$lib/backup";
   import { exerciseLibrary, starterWorkout } from "$lib/data";
+  import { defaultExerciseLibraryVersion } from "$lib/default-exercises";
+  import {
+    mergeDefaultExerciseLibrary,
+    reconcileDefaultExerciseLibrary,
+    refreshWorkoutExerciseDefinitions,
+  } from "$lib/exercise-library";
   import {
     clearExerciseImageCache,
     setExerciseImageLoading,
@@ -42,6 +49,7 @@
     type LedgerExport,
     type Theme,
   } from "$lib/ledger";
+  import { bodyMaps, normaliseBodyMap, type BodyMap } from "$lib/muscle-map";
   import {
     applyNativeAppearance,
     chooseScopedBackupFolder,
@@ -77,6 +85,8 @@
   import Circle from "lucide-svelte/icons/circle";
   import CircleCheck from "lucide-svelte/icons/circle-check";
   import ChevronDown from "lucide-svelte/icons/chevron-down";
+  import ChevronLeft from "lucide-svelte/icons/chevron-left";
+  import ChevronRight from "lucide-svelte/icons/chevron-right";
   import Copy from "lucide-svelte/icons/copy";
   import Download from "lucide-svelte/icons/download";
   import Dumbbell from "lucide-svelte/icons/dumbbell";
@@ -154,6 +164,7 @@
   let showArchived = false;
   let exerciseEditorOpen = false;
   let editingExerciseId: string | null = null;
+  let previewExerciseId: string | null = null;
   let exerciseDraft: ExerciseDraft = blankExerciseDraft();
   let exerciseFormError = "";
   let deleteExerciseCandidateId: string | null = null;
@@ -166,6 +177,7 @@
   let libraryMode: LibraryMode = "manage";
   let theme: Theme = "mocha";
   let accent: Accent = "mauve";
+  let bodyMap: BodyMap = "male";
   let expanded = new Set<string>();
   let hydrated = false;
   let draggedExerciseId: string | null = null;
@@ -250,14 +262,21 @@
       selectedMuscle === "All" ||
       exercise.muscles.includes(selectedMuscle) ||
       exercise.tags?.includes(selectedMuscle);
+    const alreadyInActiveDay =
+      libraryMode === "pick" &&
+      dayExercises.some((item) => item.id === exercise.id);
     return (
       matchesSearch &&
       matchesMuscle &&
-      Boolean(exercise.archived) === showArchived
+      Boolean(exercise.archived) === showArchived &&
+      !alreadyInActiveDay
     );
   });
   $: editingExercise = editingExerciseId
     ? savedExercises.find((exercise) => exercise.id === editingExerciseId)
+    : undefined;
+  $: previewExercise = previewExerciseId
+    ? savedExercises.find((exercise) => exercise.id === previewExerciseId)
     : undefined;
   $: vaultAddVisible =
     libraryMode === "manage" &&
@@ -295,8 +314,10 @@
       activeDayId,
       theme,
       accent,
+      bodyMap,
       exercises: savedExercises,
       schedule,
+      defaultExerciseLibraryVersion,
     };
     saveLedgerData(ledger);
     if (backupReady) scheduleAutomaticBackup(ledger);
@@ -393,14 +414,20 @@
           activeDay: string;
           theme: Theme;
           accent: Accent;
+          bodyMap: BodyMap;
           exercises: Exercise[];
           schedule: WeekSchedule;
+          defaultExerciseLibraryVersion: number;
         }>;
         if (parsed.theme && themes.includes(parsed.theme)) theme = parsed.theme;
         if (parsed.accent && accents.includes(parsed.accent))
           accent = parsed.accent;
-        if (parsed.exercises?.length)
-          savedExercises = parsed.exercises.filter(isExercise);
+        bodyMap = normaliseBodyMap(parsed.bodyMap);
+        const storedExercises = (parsed.exercises ?? []).filter(isExercise);
+        savedExercises = reconcileDefaultExerciseLibrary(
+          storedExercises,
+          parsed.defaultExerciseLibraryVersion,
+        );
         const sourceDays = parsed.days?.length
           ? typeof parsed.days[0] === "object"
             ? (parsed.days as TrainingDay[])
@@ -509,7 +536,10 @@
 
     if (alreadyFixed) {
       for (const day of fixedDays)
-        nextWorkouts[day.id] = copyWorkout(sourceWorkouts[day.id] ?? []);
+        nextWorkouts[day.id] = refreshWorkoutExerciseDefinitions(
+          copyWorkout(sourceWorkouts[day.id] ?? []),
+          savedExercises,
+        );
     } else {
       sourceDays.slice(0, 7).forEach((sourceDay, offset) => {
         const namedWeekday = weekdays.findIndex(
@@ -518,9 +548,11 @@
         );
         const targetIndex =
           namedWeekday >= 0 ? namedWeekday : (initialWeekday + offset) % 7;
-        nextWorkouts[fixedDays[targetIndex].id] = copyWorkout(
-          sourceWorkouts[sourceDay.id] ?? [],
-        );
+        nextWorkouts[fixedDays[targetIndex].id] =
+          refreshWorkoutExerciseDefinitions(
+            copyWorkout(sourceWorkouts[sourceDay.id] ?? []),
+            savedExercises,
+          );
       });
     }
 
@@ -566,6 +598,10 @@
     exerciseFormError = "";
     exerciseEditorOpen = true;
     deleteExerciseCandidateId = null;
+  }
+
+  function toggleExercisePreview(id: string) {
+    previewExerciseId = previewExerciseId === id ? null : id;
   }
 
   function duplicateExercise(exercise: Exercise) {
@@ -777,6 +813,7 @@
         note: "",
       },
     ];
+    previewExerciseId = null;
   }
 
   function removeExercise(id: string) {
@@ -1161,8 +1198,10 @@
       activeDayId,
       theme,
       accent,
+      bodyMap,
       exercises: savedExercises,
       schedule,
+      defaultExerciseLibraryVersion,
     };
   }
 
@@ -1186,6 +1225,7 @@
       settings: {
         theme: ledger.theme as Theme,
         accent: ledger.accent as Accent,
+        bodyMap: normaliseBodyMap(ledger.bodyMap),
       },
       programme: {
         days: ledger.days,
@@ -1202,6 +1242,7 @@
       days: ledger.days,
       theme: ledger.theme,
       accent: ledger.accent,
+      bodyMap: ledger.bodyMap,
       exercises: ledger.exercises,
       schedule: ledger.schedule,
     });
@@ -1699,6 +1740,8 @@
   function applyImport() {
     if (!pendingImport) return;
     const imported = pendingImport;
+    if (imported.library)
+      savedExercises = mergeDefaultExerciseLibrary(imported.library);
     installWeeklyProgramme(
       imported.programme.days.map((day) => ({ ...day })),
       Object.fromEntries(
@@ -1710,8 +1753,7 @@
     );
     theme = imported.settings.theme;
     accent = imported.settings.accent;
-    if (imported.library)
-      savedExercises = imported.library.map((exercise) => ({ ...exercise }));
+    bodyMap = normaliseBodyMap(imported.settings.bodyMap);
     pendingImport = null;
     transferMessage = "Imported your weekly programme.";
     transferError = false;
@@ -1730,6 +1772,7 @@
     libraryClosing = false;
     exerciseEditorOpen = false;
     editingExerciseId = null;
+    previewExerciseId = null;
     deleteExerciseCandidateId = null;
     vaultFiltersOpen = false;
     resetVaultDrag();
@@ -2680,7 +2723,7 @@
               <span><Settings size={20} /></span>
               <div>
                 <h2 id="appearance-heading">Appearance</h2>
-                <p>Choose a Catppuccin flavour and accent.</p>
+                <p>Choose colours and your exercise body map.</p>
               </div>
             </header>
             <fieldset class="flavour-options">
@@ -2714,6 +2757,26 @@
                   </button>
                 {/each}
               </div>
+            </fieldset>
+            <fieldset class="body-map-options">
+              <legend>Body map</legend>
+              <div>
+                {#each bodyMaps as option}
+                  <button
+                    type="button"
+                    class:active={bodyMap === option}
+                    onclick={() => (bodyMap = option)}
+                    aria-pressed={bodyMap === option}
+                  >
+                    <span>{option === "male" ? "Male" : "Female"}</span>
+                    {#if bodyMap === option}<Check
+                        size={16}
+                        strokeWidth={2.8}
+                      />{/if}
+                  </button>
+                {/each}
+              </div>
+              <small>Used only for exercise muscle diagrams.</small>
             </fieldset>
           </section>
 
@@ -3035,8 +3098,8 @@
             {showArchived
               ? "archived"
               : libraryMode === "manage"
-                ? "available"
-                : "to choose from"}
+                ? "available · Tap one to preview"
+                : "to choose from · Tap one to preview"}
           </p>
         </div>
         <div class="vault-heading-actions">
@@ -3054,6 +3117,69 @@
           >
         </div>
       </header>
+
+      {#if previewExercise && !exerciseEditorOpen}
+        <section
+          class="exercise-preview-panel"
+          id="exercise-preview-panel"
+          aria-label="Exercise details"
+        >
+          <header>
+            <button
+              class="preview-back"
+              type="button"
+              onclick={() => (previewExerciseId = null)}
+              ><ChevronLeft size={20} /><span>Exercises</span></button
+            >
+            <button
+              type="button"
+              class="icon-button close-button"
+              onclick={() => closeLibrary()}
+              aria-label="Close exercise library"
+              title="Close"><X size={18} strokeWidth={2.4} /></button
+            >
+          </header>
+          <div class="exercise-preview-content">
+            <div class="exercise-preview-title">
+              <span>{previewExercise.equipment}</span>
+              <h3>{previewExercise.name}</h3>
+              <p>{previewExercise.muscles.join(" · ")}</p>
+            </div>
+            <MuscleMap muscles={previewExercise.muscles} {bodyMap} />
+            {#if previewExercise.description}<section
+                class="exercise-preview-cue"
+              >
+                <small>Form cue</small>
+                <p>{previewExercise.description}</p>
+              </section>{/if}
+            {#if previewExercise.tags?.length}<div
+                class="exercise-preview-tags"
+              >
+                {#each previewExercise.tags as tag}<span>{tag}</span>{/each}
+              </div>{/if}
+            {#if previewExercise.guideUrl}<a
+                class="exercise-preview-reference"
+                href={previewExercise.guideUrl}
+                target="_blank"
+                rel="noreferrer"
+                ><ExternalLink size={16} /> Open form reference</a
+              >{/if}
+          </div>
+          <footer>
+            {#if libraryMode === "manage"}<button
+                type="button"
+                class="preview-primary-action"
+                onclick={() => openExerciseEditor(previewExercise)}
+                ><Pencil size={17} /> Edit exercise</button
+              >{:else}<button
+                type="button"
+                class="preview-primary-action"
+                onclick={() => addExercise(previewExercise)}
+                ><Plus size={17} /> Add to {activeDayName}</button
+              >{/if}
+          </footer>
+        </section>
+      {/if}
 
       {#if exerciseEditorOpen}
         <form
@@ -3104,6 +3230,14 @@
                 placeholder="Type or open suggestions"
               />
             </div>
+            <section class="exercise-muscle-preview wide">
+              <div>
+                <span>Muscle map</span>
+                <small>Highlights update from the structured muscle list.</small
+                >
+              </div>
+              <MuscleMap muscles={exerciseDraft.muscles} {bodyMap} compact />
+            </section>
             <label class="wide"
               ><span>Personal tags</span><input
                 bind:value={exerciseDraft.tags}
@@ -3295,32 +3429,44 @@
       <div class="vault-list">
         {#each visibleExercises as exercise (exercise.id)}
           <article class="vault-item">
-            <div class="vault-item-copy">
-              <h3>{exercise.name}</h3>
-              <p>
-                {exercise.muscles.join(" / ") || "Personal"} · {exercise.equipment}
-              </p>
-              {#if exercise.tags?.length}<div class="exercise-tags">
-                  {#each exercise.tags as tag}<span>{tag}</span>{/each}
+            <div class="vault-item-main">
+              <button
+                class="vault-item-copy"
+                type="button"
+                aria-expanded={previewExerciseId === exercise.id}
+                aria-controls="exercise-preview-panel"
+                onclick={() => toggleExercisePreview(exercise.id)}
+              >
+                <span>
+                  <strong>{exercise.name}</strong>
+                  <p>
+                    {exercise.muscles.join(" / ") || "Personal"} · {exercise.equipment}
+                  </p>
+                  {#if exercise.tags?.length}<span class="exercise-tags">
+                      {#each exercise.tags as tag}<span>{tag}</span>{/each}
+                    </span>{/if}
+                </span>
+                <ChevronRight size={18} />
+              </button>
+              {#if libraryMode === "manage" || (!exercise.archived && !dayExercises.some((item) => item.id === exercise.id))}<div
+                  class="vault-item-actions"
+                >
+                  {#if libraryMode === "manage"}
+                    <button
+                      class="edit-from-vault"
+                      type="button"
+                      onclick={() => openExerciseEditor(exercise)}
+                      ><Pencil size={16} /><span>Edit</span></button
+                    >
+                  {:else}<button
+                      class="add-from-vault"
+                      type="button"
+                      aria-label={`Add ${exercise.name} to ${activeDayName}`}
+                      onclick={() => addExercise(exercise)}
+                      ><Plus size={15} /> Add
+                    </button>{/if}
                 </div>{/if}
             </div>
-            {#if libraryMode === "manage" || (!exercise.archived && !dayExercises.some((item) => item.id === exercise.id))}<div
-                class="vault-item-actions"
-              >
-                {#if libraryMode === "manage"}
-                  <button
-                    class="edit-from-vault"
-                    type="button"
-                    onclick={() => openExerciseEditor(exercise)}
-                    ><Pencil size={16} /><span>Edit</span></button
-                  >
-                {:else}<button
-                    class="add-from-vault"
-                    type="button"
-                    onclick={() => addExercise(exercise)}
-                    ><Plus size={15} /> Add
-                  </button>{/if}
-              </div>{/if}
           </article>
         {:else}
           <p class="vault-empty">
@@ -3331,18 +3477,14 @@
         {/each}
       </div>
 
-      <button
-        class:visible={vaultAddVisible}
-        class="vault-add-fab"
-        type="button"
-        onclick={openExerciseCreator}
-        disabled={!vaultAddVisible}
-        aria-hidden={!vaultAddVisible}
-        tabindex={vaultAddVisible ? 0 : -1}
-      >
-        <Plus size={20} strokeWidth={2.3} />
-        <span>Add exercise</span>
-      </button>
+      {#if vaultAddVisible}<button
+          class="visible vault-add-fab"
+          type="button"
+          onclick={openExerciseCreator}
+        >
+          <Plus size={20} strokeWidth={2.3} />
+          <span>Add exercise</span>
+        </button>{/if}
     </div>
   {/if}
 </div>

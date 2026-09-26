@@ -12,6 +12,8 @@
         "@capacitor/share": "^8.0.1",
         "@capacitor/status-bar": "^8.0.3",
         "@material/web": "2.4.1",
+        "@musclemap/assets": "^1.0.0",
+        "@musclemap/core": "^1.0.0",
         "lucide-svelte": "^1.0.1",
       },
       "devDependencies": {
@@ -132,6 +134,10 @@
     "@lit/reactive-element": ["@lit/reactive-element@2.1.2", "", { "dependencies": { "@lit-labs/ssr-dom-shim": "^1.5.0" } }, "sha512-pbCDiVMnne1lYUIaYNN5wrwQXDtHaYtg7YEFPeW+hws6U47WeFvISGUWekPGKWOP1ygrs0ef0o1VJMk1exos5A=="],
 
     "@material/web": ["@material/web@2.4.1", "", { "dependencies": { "lit": "^2.8.0 || ^3.0.0", "tslib": "^2.4.0" } }, "sha512-0sk9t25acJ72Qv3r0n9r0lgDbPaAKnpm0p+QmEAAwYyZomHxuVbgrrAdtNXaRm7jFyGh+WsTr8bhtvCnpPRFjw=="],
+
+    "@musclemap/assets": ["@musclemap/assets@1.1.0", "", { "dependencies": { "@musclemap/core": "1.1.0" } }, "sha512-Ms3Xb2DYcHf4wecfO5APtuSv6sTFal2tkqi4KcfU+LWVFWtUyxxXMHm8nPH+J1CMR2OCbu35RoJq2t5FCQngdQ=="],
+
+    "@musclemap/core": ["@musclemap/core@1.1.0", "", {}, "sha512-KyJ4kquElR6DO5iFvnIht47mw72oi+Xim5CT6+7ku2+ynjL6y4M5lAWaR1szUB0PVsjBGgnfK+eOTKtgC47hLg=="],
 
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
 

@@ -54,7 +54,7 @@ function ledger(overrides: Record<string, unknown> = {}) {
     app: "pulse",
     version: 4,
     exportedAt: "2026-08-04T00:00:00.000Z",
-    settings: { theme: "mocha", accent: "mauve" },
+    settings: { theme: "mocha", accent: "mauve", bodyMap: "female" },
     programme: {
       days: [{ id: "day-1", name: "Whatever day" }],
       workouts: { "day-1": [exercise] },
@@ -189,6 +189,23 @@ describe("programme ordering", () => {
 describe("ledger imports", () => {
   test("accepts a complete Pulse backup", () => {
     expect(isLedgerExport(ledger())).toBeTrue();
+  });
+
+  test("accepts older backups without a body map and rejects unknown maps", () => {
+    expect(
+      isLedgerExport(ledger({ settings: { theme: "mocha", accent: "mauve" } })),
+    ).toBeTrue();
+    expect(
+      isLedgerExport(
+        ledger({
+          settings: {
+            theme: "mocha",
+            accent: "mauve",
+            bodyMap: "unknown",
+          },
+        }),
+      ),
+    ).toBeFalse();
   });
 
   test("accepts a v3 backup with a flat prescription", () => {

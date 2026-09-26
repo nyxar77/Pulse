@@ -4,6 +4,7 @@ import type {
   WeekSchedule,
   WorkoutExercise,
 } from "$lib/types";
+import type { BodyMap } from "$lib/muscle-map";
 
 const databaseName = "pulse";
 const databaseVersion = 1;
@@ -19,8 +20,10 @@ export type StoredLedger = {
   activeDayId: string;
   theme: string;
   accent: string;
+  bodyMap?: BodyMap;
   exercises: Exercise[];
   schedule: WeekSchedule;
+  defaultExerciseLibraryVersion?: number;
 };
 
 let databasePromise: Promise<IDBDatabase> | undefined;

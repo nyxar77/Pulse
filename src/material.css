@@ -19,6 +19,10 @@ html {
   overscroll-behavior: none;
 }
 
+html:has(.app[data-theme="latte"]) {
+  background: #f7f7fa;
+}
+
 body {
   min-width: 320px;
   min-height: 100%;
@@ -192,15 +196,15 @@ a {
 }
 
 .app[data-theme="latte"] {
-  --base: #eff1f5;
-  --mantle: #e6e9ef;
-  --crust: #dce0e8;
+  --base: #f7f7fa;
+  --mantle: #f1f2f6;
+  --crust: #e5e7ed;
   --surface: #ffffff;
-  --surface-1: #ccd0da;
-  --surface-2: #bcc0cc;
-  --overlay: #7c7f93;
-  --subtext: #5c5f77;
-  --text: #4c4f69;
+  --surface-1: #e2e4eb;
+  --surface-2: #c9ccd6;
+  --overlay: #74788d;
+  --subtext: #62667b;
+  --text: #414458;
   --rosewater: #dc8a78;
   --flamingo: #dd7878;
   --pink: #ea76cb;
@@ -325,6 +329,20 @@ a {
 
 .app[data-theme="latte"] {
   --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: color-mix(
+    in srgb,
+    var(--accent) 13%,
+    #ffffff
+  );
+  --md-sys-color-surface: #f7f7fa;
+  --md-sys-color-surface-dim: #e5e7ed;
+  --md-sys-color-surface-bright: #ffffff;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #ffffff;
+  --md-sys-color-surface-container: #f3f4f7;
+  --md-sys-color-surface-container-high: #eceef3;
+  --md-sys-color-surface-container-highest: #e3e5ec;
+  --md-sys-color-outline-variant: #d8dae3;
 }
 
 md-filled-tonal-button,
@@ -486,7 +504,7 @@ md-fab {
 .vault-filter-options button.active {
   color: var(--md-sys-color-on-primary-container);
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent) 25%, var(--surface));
+  background: var(--md-sys-color-primary-container);
 }
 
 .flavour-preview {
@@ -526,6 +544,44 @@ md-fab {
 
 .accent-options button.active {
   border-color: var(--md-sys-color-on-surface);
+}
+
+.body-map-options > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.body-map-options button {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 650;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.body-map-options button.active {
+  color: var(--md-sys-color-on-primary-container);
+  border-color: color-mix(
+    in srgb,
+    var(--md-sys-color-primary) 50%,
+    transparent
+  );
+  background: var(--md-sys-color-primary-container);
+}
+
+.body-map-options small {
+  display: block;
+  margin-top: 9px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .data-action {
@@ -2552,6 +2608,34 @@ md-fab {
   resize: vertical;
 }
 
+.exercise-muscle-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 18px;
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.exercise-muscle-preview > div {
+  display: grid;
+  gap: 4px;
+}
+
+.exercise-muscle-preview > div > span {
+  color: var(--md-sys-color-on-surface);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.exercise-muscle-preview small {
+  max-width: 260px;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.45;
+}
+
 .exercise-editor footer {
   display: flex;
   justify-content: flex-end;
@@ -2828,13 +2912,19 @@ md-fab {
 }
 
 .vault-item {
+  position: relative;
   min-height: 82px;
+  padding: 12px 14px 12px 16px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.vault-item-main {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px 14px;
-  padding: 12px 14px 12px 16px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  gap: 14px;
 }
 
 .vault-item:last-child {
@@ -2843,9 +2933,28 @@ md-fab {
 
 .vault-item-copy {
   min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  color: var(--md-sys-color-on-surface);
+  text-align: left;
+  border: 0;
+  background: transparent;
 }
 
-.vault-item-copy h3 {
+.vault-item-copy > span {
+  min-width: 0;
+}
+
+.vault-item-copy > svg {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.vault-item-copy > span > strong {
+  display: block;
   overflow: hidden;
   margin: 0;
   font-size: 0.98rem;
@@ -2909,12 +3018,6 @@ md-fab {
   background: var(--md-sys-color-primary-container);
 }
 
-.vault-item-actions .add-from-vault.added:disabled {
-  color: var(--md-sys-color-on-surface-variant);
-  opacity: 0.72;
-  background: var(--md-sys-color-surface-container-highest);
-}
-
 .vault-item-actions .edit-from-vault {
   width: auto;
   min-width: 78px;
@@ -2929,6 +3032,141 @@ md-fab {
 .vault-item-actions .edit-from-vault:hover {
   color: var(--md-sys-color-on-surface);
   background: var(--md-sys-color-surface-container-highest);
+}
+
+.exercise-preview-panel {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--md-sys-color-surface-container);
+  animation: preview-panel-in 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes preview-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+.exercise-preview-panel > header {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.preview-back {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 8px;
+  color: var(--md-sys-color-primary);
+  font-weight: 600;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.exercise-preview-content {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  flex-direction: column;
+  gap: 22px;
+  padding: 28px 24px;
+  overflow-y: auto;
+}
+
+.exercise-preview-title {
+  width: min(100%, 520px);
+  text-align: center;
+}
+
+.exercise-preview-title > span,
+.exercise-preview-cue small {
+  color: var(--md-sys-color-primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.exercise-preview-title h3 {
+  margin: 7px 0 5px;
+  font-size: clamp(1.35rem, 4vw, 1.75rem);
+  font-weight: 600;
+}
+
+.exercise-preview-title p,
+.exercise-preview-cue p {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.5;
+}
+
+.exercise-preview-cue {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 7px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.exercise-preview-tags {
+  width: min(100%, 520px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+
+.exercise-preview-tags span {
+  padding: 5px 10px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.72rem;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.exercise-preview-reference {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--md-sys-color-primary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.exercise-preview-panel > footer {
+  padding: 14px 18px max(18px, var(--safe-bottom));
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+}
+
+.preview-primary-action {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-primary-container);
+  font-weight: 650;
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-sys-color-primary-container);
 }
 
 .vault-empty {
@@ -3678,14 +3916,19 @@ md-fab {
 
   .vault-item {
     min-height: 92px;
-    gap: 14px;
     padding: 16px 12px 16px 16px;
     border: 0;
     border-radius: 22px;
     background: var(--md-sys-color-surface-container-high);
   }
 
-  .vault-item-copy h3 {
+  .vault-item-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .vault-item-copy > span > strong {
     display: -webkit-box;
     overflow: hidden;
     line-height: 1.3;
@@ -3742,6 +3985,14 @@ md-fab {
 
   .exercise-form-grid .wide {
     grid-column: auto;
+  }
+
+  .exercise-muscle-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .exercise-muscle-preview .muscle-map {
+    justify-self: center;
   }
 
   .exercise-editor footer {
@@ -3879,6 +4130,17 @@ md-fab {
   button:hover {
     filter: none;
   }
+}
+
+.app[data-theme="latte"] .settings-group {
+  box-shadow: 0 10px 30px
+    color-mix(in srgb, var(--md-sys-color-on-surface) 7%, transparent);
+}
+
+.app[data-theme="latte"] .app-navigation {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: 0 10px 28px
+    color-mix(in srgb, var(--md-sys-color-on-surface) 14%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -6,6 +6,7 @@ import type {
   WeekSchedule,
   WorkoutExercise,
 } from "$lib/types";
+import { bodyMaps, type BodyMap } from "$lib/muscle-map";
 
 export const themes = ["latte", "frappe", "macchiato", "mocha"] as const;
 export const accents = [
@@ -40,7 +41,7 @@ export type LedgerExport = {
   app: "pulse";
   version: 1 | 2 | 3 | 4;
   exportedAt: string;
-  settings: { theme: Theme; accent: Accent };
+  settings: { theme: Theme; accent: Accent; bodyMap?: BodyMap };
   programme: {
     days: TrainingDay[];
     workouts: Record<string, Array<WorkoutExercise | LegacyWorkoutExercise>>;
@@ -232,6 +233,12 @@ export function isLedgerExport(value: unknown): value is LedgerExport {
   if (
     typeof value.settings.accent !== "string" ||
     !accents.includes(value.settings.accent as Accent)
+  )
+    return false;
+  if (
+    value.settings.bodyMap !== undefined &&
+    (typeof value.settings.bodyMap !== "string" ||
+      !bodyMaps.includes(value.settings.bodyMap as BodyMap))
   )
     return false;
 
